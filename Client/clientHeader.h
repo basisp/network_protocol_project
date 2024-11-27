@@ -33,7 +33,7 @@ typedef struct _CHAT_MSG {
 //sizeof(DRAWLINE_MSG) == 256
 typedef struct _DRAWLINE_MSG {
 	int type;
-	char color;
+	int color;
 	int x0, y0;
 	int x1, y1;
 	char dummy[SIZE_TOT - 6 * sizeof(int)];

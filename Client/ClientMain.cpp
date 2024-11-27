@@ -314,6 +314,7 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			g_drawlinemsg.x1 = x1;
 			g_drawlinemsg.y1 = y1;
 			send(g_sock, (char*)&g_drawlinemsg, SIZE_TOT, 0);
+
 			// 마우스 클릭 좌표 갱신
 			x0 = x1;
 			y0 = y1;
@@ -446,7 +447,7 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 		else if (comm_msg.type == TYPE_DRAWLINE) {
 			drawline_msg = (DRAWLINE_MSG*)&comm_msg;
 			g_drawcolor = drawline_msg->color;
-			SendMessage(g_hDrawWnd, WM_DRAWITEM,
+			SendMessage(g_hDrawWnd, WM_DRAWLINE,
 				MAKEWPARAM(drawline_msg->x0, drawline_msg->y0),
 				MAKELPARAM(drawline_msg->x1, drawline_msg->y1));
 		}
