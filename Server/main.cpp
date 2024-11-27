@@ -245,7 +245,7 @@ int main(int argc, char* argv[]) {
                     //현재 접속한 모든 클라이언트에 데이터 전송
                     for (int j = 0; j < nTotalSockets; j++) {
                         SOCKETINFO* ptr2 = SocketInfoArray[j];
-                        retval = sendAll(ptr, retval, ptr->buf, j, addrlen);
+                        retval = sendAll(ptr2, retval, ptr->buf, j, addrlen);
                         if (retval == SOCKET_ERROR) {
                             err_display("send()");
                             RemoveSocketInfo(j);
@@ -259,7 +259,7 @@ int main(int argc, char* argv[]) {
                     for (int j = 0; j < nTotalSockets; j++) {
                         SOCKETINFO* ptr2 = SocketInfoArray[j];
                         // 데이터 보내기
-                        retval = retval = sendAll(ptr, retval, ptr->buf, j, addrlen);
+                        retval = retval = sendAll(ptr2, retval, ptr->buf, j, addrlen);
                         if (retval == SOCKET_ERROR) {
                             err_display("sendto()");
                             RemoveSocketInfo(j);
@@ -372,7 +372,7 @@ void RemoveSocketInfo(int nIndex) {
         //클라이언트 정보 출력
         char addr[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &clientaddr.sin6_addr, addr, sizeof(addr));
-        printf("[TCP/IPv4 서버] 클라이언트 종료 : IP 주소=%s, 포트 번호=%d\n", addr, ntohs(clientaddr.sin6_port));
+        printf("[TCP/IPv6 서버] 클라이언트 종료 : IP 주소=%s, 포트 번호=%d\n", addr, ntohs(clientaddr.sin6_port));
     }
     else if (ptr->isIpv6 == false && ptr->isUDP == true) {
         //클라이언트 정보 얻기
