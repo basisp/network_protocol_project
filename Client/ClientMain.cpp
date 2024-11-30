@@ -11,6 +11,8 @@
 #include <stdio.h> // printf(), ...
 #include <stdlib.h> // exit(), ...
 #include <string.h> // strncpy(), ...
+#include <Shlwapi.h>
+#pragma comment(lib, "Shlwapi.lib")
 
 #pragma comment(lib, "ws2_32") // ws2_32.lib 링크
 
@@ -41,6 +43,9 @@ static CHAT_MSG g_chatmsg;			//채팅 메시지
 static DRAWLINE_MSG g_drawlinemsg;  //선 그리기 메시지
 static int g_drawcolor;				//선 그리기 색상
 static ERASEPIC_MSG g_erasepicmsg;	//그림 지우기 메시지
+
+// 현재 파일 전송 상태를 관리
+static bool g_isSender = false;
 
 // 소켓 함수 오류 출력 후 종료
 void err_quit(const char* msg)
@@ -223,11 +228,88 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			SetFocus(hEditMsg);
 			EnableWindow(g_hBtnErasePic, TRUE);
 			return TRUE;
+
 		case IDC_SENDFILE:
-			MessageBox(NULL, _T("아직 구현하지 않았습니다."), _T("알림"), MB_ICONERROR);
-			// 1. GetOpenFilename() 윈도우  API를 이용햇 파일 열기 대화상자를 열고 전송할 파일 선택
-			//2. 선택한 파일을 읽어서 서버에 전송
-			return TRUE;
+		{
+			// 1. 파일 열기 대화상자를 이용해 파일 선택
+			OPENFILENAME ofn;
+			TCHAR szFile[MAX_PATH] = _T("");
+
+			ZeroMemory(&ofn, sizeof(ofn));
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = hDlg;
+			ofn.lpstrFile = szFile;
+			ofn.nMaxFile = sizeof(szFile);
+			ofn.lpstrFilter = _T("All Files\0*.*\0Text Files\0*.TXT\0\0");
+			ofn.nFilterIndex = 1;
+			ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+			if (GetOpenFileName(&ofn) == TRUE)
+			{
+				// 2. 파일 열기
+				HANDLE hFile = CreateFile(
+					szFile,
+					GENERIC_READ,
+					0,
+					NULL,
+					OPEN_EXISTING,
+					FILE_ATTRIBUTE_NORMAL,
+					NULL);
+
+				if (hFile == INVALID_HANDLE_VALUE)
+				{
+					MessageBox(hDlg, _T("파일을 열 수 없습니다."), _T("오류"), MB_ICONERROR);
+					break;
+				}
+
+				// 파일 크기 확인
+				DWORD fileSize = GetFileSize(hFile, NULL);
+				if (fileSize == INVALID_FILE_SIZE)
+				{
+					MessageBox(hDlg, _T("파일 크기를 확인할 수 없습니다."), _T("오류"), MB_ICONERROR);
+					CloseHandle(hFile);
+					break;
+				}
+
+				g_isSender = true;
+
+				FILE_MSG fileMsg;
+				fileMsg.type = TYPE_FILE;
+				fileMsg.totalsize = fileSize;  // 송신자 표시
+
+				// 파일 이름 추출 및 저장
+				TCHAR* fileName = PathFindFileName(szFile);
+				#ifdef UNICODE
+					WideCharToMultiByte(CP_ACP, 0, fileName, -1,fileMsg.filename, MAX_FILENAME, NULL, NULL);
+				#else
+					strncpy(fileMsg.filename, fileName, MAX_FILENAME);
+				#endif
+
+				// 현재 전송 중인 파일 정보 저장
+				DisplayText("[파일 송신] %s (총 %d bytes)\r\n",fileMsg.filename, fileSize);
+
+				// 파일 데이터 읽고 전송
+				DWORD bytesRead;
+				while (ReadFile(hFile, fileMsg.filedata, SIZE_DAT, &bytesRead, NULL)
+					&& bytesRead > 0)
+				{
+					fileMsg.filesize = bytesRead;
+
+					if (send(g_sock, (char*)&fileMsg, sizeof(FILE_MSG), 0)
+						== SOCKET_ERROR)
+					{
+						MessageBox(hDlg, _T("파일 전송 실패."), _T("오류"), MB_ICONERROR);
+						break;
+					}
+				}
+
+				CloseHandle(hFile);
+				g_isSender = false;
+				MessageBox(hDlg, _T("파일 전송 완료!"), _T("알림"), MB_OK);
+			}
+			break;
+			}
+
 		case IDC_SENDMSG:
 			// 이전에 얻은 채팅 메시지 읽기 완료를 기다림
 			WaitForSingleObject(g_hReadEvent, INFINITE);
@@ -435,11 +517,19 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 	DRAWLINE_MSG* drawline_msg;
 	ERASEPIC_MSG* erasepic_msg;
 
+	// 파일 수신용 변수들을 static으로 선언
+	static HANDLE hFile = INVALID_HANDLE_VALUE;
+	static TCHAR currentFilePath[MAX_PATH];
+	static DWORD totalReceived = 0;
+	static DWORD totalFileSize = 0;  // 전체 파일 크기를 저장하기 위한 변수
+	static bool isFirstPacket = true;  // 첫 번째 패킷인지 확인하는 변수
+
 	while (1) {
 		retval = recv(g_sock, (char*)&comm_msg, SIZE_TOT, MSG_WAITALL);
 		if (retval == 0 || retval == SOCKET_ERROR) {
 			break;
 		}
+
 		if (comm_msg.type == TYPE_CHAT) {
 			chat_msg = (CHAT_MSG*)&comm_msg;
 			DisplayText("[받은 메시지] %s\r\n", chat_msg->msg);
@@ -455,9 +545,63 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 			erasepic_msg = (ERASEPIC_MSG*)&comm_msg;
 			SendMessage(g_hDrawWnd, WM_ERASEPIC, 0, 0);
 		}
+		else if (comm_msg.type == TYPE_FILE && !g_isSender)
+		{
+			FILE_MSG* file_msg = (FILE_MSG*)&comm_msg;
+
+			// 새로운 파일 시작
+			if (hFile == INVALID_HANDLE_VALUE)
+			{
+				TCHAR wFileName[MAX_FILENAME];
+				#ifdef UNICODE
+					MultiByteToWideChar(CP_ACP, 0, file_msg->filename, -1, wFileName, MAX_FILENAME);
+				#else
+					_tcscpy(wFileName, file_msg->filename);
+				#endif
+
+				GetModuleFileName(NULL, currentFilePath, MAX_PATH);
+				PathRemoveFileSpec(currentFilePath);
+				PathAppend(currentFilePath, wFileName);
+
+				hFile = CreateFile(
+					currentFilePath,
+					GENERIC_WRITE,
+					0,
+					NULL,
+					CREATE_ALWAYS,
+					FILE_ATTRIBUTE_NORMAL,
+					NULL);
+
+				if (hFile != INVALID_HANDLE_VALUE) {
+					totalFileSize = file_msg->totalsize;  // 전체 파일 크기 저장
+					DisplayText("[파일 수신] %s 수신 시작...\r\n", file_msg->filename);
+					totalReceived = 0;
+				}
+			}
+
+			if (hFile != INVALID_HANDLE_VALUE)
+			{
+				DWORD bytesWritten;
+				WriteFile(hFile, file_msg->filedata, file_msg->filesize,
+					&bytesWritten, NULL);
+				totalReceived += bytesWritten;
+
+				// 전체 파일을 다 받았을 때만 완료 메시지 출력
+				if (totalReceived >= totalFileSize)
+				{
+					DisplayText("[파일 수신] %s (총 %d bytes) 완료\r\n",
+						file_msg->filename, totalReceived);
+					CloseHandle(hFile);
+					hFile = INVALID_HANDLE_VALUE;
+					totalReceived = 0;
+					totalFileSize = 0;
+				}
+			}
+		}
 	}
 	return 0;
 }
+
 DWORD WINAPI WriteThread(LPVOID	arg) {
 	int retval;
 

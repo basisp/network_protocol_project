@@ -61,3 +61,17 @@ void DisplayText(const char* fmt, ...);
 void err_quit(const char* msg);
 void err_display(const char* msg);
 void err_display(int errcode);
+
+
+//파일 전송 시 이용
+#define TYPE_FILE 3  // 새로운 메시지 타입 추가
+#define MAX_FILENAME 256
+#define MAX_FILESIZE 104857600  // 100MB 제한
+
+typedef struct {
+	int type;
+	DWORD filesize;    // 현재 청크의 크기
+	DWORD totalsize;   // 전체 파일의 크기
+	char filename[MAX_FILENAME];
+	char filedata[SIZE_DAT];
+} FILE_MSG;
