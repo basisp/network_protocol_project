@@ -6,15 +6,16 @@
 
 #define SIZE_TOT 256  //전송 패킷 고정 256바이트 사용(헤더+데이터)
 #define SIZE_DAT (SIZE_TOT - sizeof(int)) //헤더 길이를 제외한 데이터 
+#define MAX_BUFFER SIZE_TOT
 
 
 #define TYPE_CHAT 1000 // type = 1000 채팅 메시지 
 #define TYPE_DRAWLINE 1001 // type = 1001 선 그리기 메시지 
 #define TYPE_ERASEPIC 1002 //  type = 1000 그림 지우기 메시지
+#define TYPE_FILE 1003 //파일 전송 메세지
 
 #define WM_DRAWLINE (WM_USER + 1)// 사용자 정의 윈도우 메시지 - 선 그리기
 #define WM_ERASEPIC (WM_USER + 2)// 사용자 정의 윈도우 메시지 - 그림 지우기
-
 //공통 메시지 형식
 //sizeof (COMM_MSG) == 256
 typedef struct _COMM_MSG {
@@ -62,16 +63,9 @@ void err_quit(const char* msg);
 void err_display(const char* msg);
 void err_display(int errcode);
 
-
-//파일 전송 시 이용
-#define TYPE_FILE 3  // 새로운 메시지 타입 추가
-#define MAX_FILENAME 256
-#define MAX_FILESIZE 104857600  // 100MB 제한
-
-typedef struct {
+typedef struct _FILE_MSG {
 	int type;
-	DWORD filesize;    // 현재 청크의 크기
-	DWORD totalsize;   // 전체 파일의 크기
-	char filename[MAX_FILENAME];
-	char filedata[SIZE_DAT];
+	char filename[SIZE_DAT / 2];  // 파일명을 위한 공간
+	DWORD filesize;             // 파일 크기
+	char dummy[SIZE_DAT - (SIZE_DAT / 2) - sizeof(DWORD)]; // 남은 공간을 dummy로
 } FILE_MSG;

@@ -18,6 +18,16 @@
 
 #define SERVERPORT 9000
 #define BUFSIZE 256
+#define TYPE_FILE 1003 // 기존 메시지 타입들(1000, 1001, 1002)과 구분되는 새로운 타입
+#define SIZE_TOT 256  //전송 패킷 고정 256바이트 사용(헤더+데이터)
+#define SIZE_DAT (SIZE_TOT - sizeof(int)) //헤더 길이를 제외한 데이터 
+
+typedef struct _FILE_MSG {
+    int type;
+    char filename[SIZE_DAT / 2];  // 파일명
+    DWORD filesize;            // 파일 크기
+    char dummy[SIZE_DAT - (SIZE_DAT / 2) - sizeof(DWORD)]; // 남은 공간을 dummy로
+} FILE_MSG;
 
 typedef struct _SOCKETINFO
 {
@@ -30,7 +40,10 @@ typedef struct _SOCKETINFO
     int addrlen;
     sockaddr_in clientaddr4;
     sockaddr_in6 clientaddr6;
+    bool isReceivingFile;   // 파일 수신 중인지 확인용
+    DWORD remainFileSize;   // 남은 파일 크기
 } SOCKETINFO;
+
 int nTotalSockets = 0;
 SOCKETINFO* SocketInfoArray[FD_SETSIZE];
 
@@ -229,42 +242,76 @@ int main(int argc, char* argv[]) {
             SOCKETINFO* ptr = SocketInfoArray[i];
             if (FD_ISSET(ptr->sock, &rset)) {
                 if (ptr->isUDP == false) {
-                    //데이터 받기
+                    // 데이터 받기
                     retval = recv(ptr->sock, ptr->buf, BUFSIZE, 0);
                     if (retval == 0 || retval == SOCKET_ERROR) {
                         RemoveSocketInfo(i);
                         continue;
                     }
 
-                    ptr->buf[retval] = '\0';
-                    if (ptr->isIpv6)
-                        printf("[TCP/IPv6/%s:%d] %s\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port), ptr->buf);
-                    else
-                        printf("[TCP/IPv4/%s:%d] %s\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port), ptr->buf);
+                    // 메시지 타입 확인
+                    int type = *(int*)ptr->buf;
 
-                    //현재 접속한 모든 클라이언트에 데이터 전송
-                    for (int j = 0; j < nTotalSockets; j++) {
-                        SOCKETINFO* ptr2 = SocketInfoArray[j];
-                        retval = sendAll(ptr2, retval, ptr->buf, j, addrlen);
-                        if (retval == SOCKET_ERROR) {
-                            err_display("send()");
-                            RemoveSocketInfo(j);
-                            --j; // 루프 인덱스 보정
-                            continue;
+                    if (type == TYPE_FILE) {  // 파일 전송 시작
+                        FILE_MSG* filemsg = (FILE_MSG*)ptr->buf;
+                        ptr->isReceivingFile = true;
+                        ptr->remainFileSize = filemsg->filesize;
+
+                        printf("[파일 전송 시작] %s (%d 바이트)\n",
+                            filemsg->filename, filemsg->filesize);
+
+                        // 다른 클라이언트들에게 파일 정보 전송
+                        for (int j = 0; j < nTotalSockets; j++) {
+                            if (j != i) {  // 송신자는 제외
+                                SOCKETINFO* ptr2 = SocketInfoArray[j];
+                                retval = send(ptr2->sock, ptr->buf, SIZE_TOT, 0);
+                                if (retval == SOCKET_ERROR) {
+                                    err_display("send()");
+                                    RemoveSocketInfo(j);
+                                    --j;
+                                    continue;
+                                }
+                            }
                         }
                     }
-                }
-                else {
-                    //현재 접속한 모든 클라이언트에 데이터 전송
-                    for (int j = 0; j < nTotalSockets; j++) {
-                        SOCKETINFO* ptr2 = SocketInfoArray[j];
-                        // 데이터 보내기
-                        retval = retval = sendAll(ptr2, retval, ptr->buf, j, addrlen);
-                        if (retval == SOCKET_ERROR) {
-                            err_display("sendto()");
-                            RemoveSocketInfo(j);
-                            --j; // 루프 인덱스 보정
-                            continue;
+                    else if (ptr->isReceivingFile) {  // 파일 데이터 수신 중
+                        // 다른 클라이언트들에게 파일 데이터 전송
+                        for (int j = 0; j < nTotalSockets; j++) {
+                            if (j != i) {  // 송신자는 제외
+                                SOCKETINFO* ptr2 = SocketInfoArray[j];
+                                retval = send(ptr2->sock, ptr->buf, retval, 0);
+                                if (retval == SOCKET_ERROR) {
+                                    err_display("send()");
+                                    RemoveSocketInfo(j);
+                                    --j;
+                                    continue;
+                                }
+                            }
+                        }
+
+                        ptr->remainFileSize -= retval;
+                        if (ptr->remainFileSize <= 0) {
+                            ptr->isReceivingFile = false;
+                            printf("[파일 전송 완료]\n");
+                        }
+                    }
+                    else {  // 일반 메시지 처리
+                        ptr->buf[retval] = '\0';
+                        if (ptr->isIpv6)
+                            printf("[TCP/IPv6/%s:%d] %s\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port), ptr->buf);
+                        else
+                            printf("[TCP/IPv4/%s:%d] %s\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port), ptr->buf);
+
+                        // 현재 접속한 모든 클라이언트에 데이터 전송
+                        for (int j = 0; j < nTotalSockets; j++) {
+                            SOCKETINFO* ptr2 = SocketInfoArray[j];
+                            retval = sendAll(ptr2, retval, ptr->buf, j, addrlen);
+                            if (retval == SOCKET_ERROR) {
+                                err_display("send()");
+                                RemoveSocketInfo(j);
+                                --j;
+                                continue;
+                            }
                         }
                     }
                 }
