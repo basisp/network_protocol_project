@@ -232,8 +232,6 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			TCHAR szFile[MAX_PATH] = { 0 };
 			TCHAR szFilter[] = _T("Text & Image Files(*.txt;*.jpg;*.jpeg;*.png;*.bmp)\0*.txt;*.jpg;*.jpeg;*.png;*.bmp\0All Files(*.*)\0*.*\0");
 
-
-			// 열기 대화상자 구조체 초기화
 			ofn.lStructSize = sizeof(OPENFILENAME);
 			ofn.hwndOwner = hDlg;
 			ofn.lpstrFilter = szFilter;
@@ -241,7 +239,6 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			ofn.nMaxFile = MAX_PATH;
 			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
 
-			// 파일 열기 대화상자 열기
 			if (GetOpenFileName(&ofn)) {
 				// 파일 크기 얻기
 				HANDLE hFile = CreateFile(szFile, GENERIC_READ, 0, NULL,
@@ -280,21 +277,90 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 					ansiFilename, MAX_PATH, NULL, NULL);
 				strncpy(fileMsg.filename, ansiFilename, SIZE_DAT / 2 - 1);
 
-				// 파일 정보 먼저 전송
-				send(g_sock, (char*)&fileMsg, SIZE_TOT, 0);
-
-				// 파일 데이터 전송
+				int retval;
 				int totalSent = 0;
-				while (totalSent < fileSize) {
-					int remainSize = fileSize - totalSent;
-					int sendSize = min(remainSize, SIZE_TOT);
 
-					int retval = send(g_sock, fileData + totalSent, sendSize, 0);
-					if (retval == SOCKET_ERROR) {
-						MessageBox(hDlg, _T("파일 전송 실패"), _T("오류"), MB_ICONERROR);
-						break;
+				// UDP 전송
+				if (g_isUDP) {
+					if (!g_isIPv6) { // UDP/IPv4
+						struct sockaddr_in serveraddr4;
+						memset(&serveraddr4, 0, sizeof(serveraddr4));
+						serveraddr4.sin_family = AF_INET;
+						inet_pton(AF_INET, g_ipaddr, &serveraddr4.sin_addr);
+						serveraddr4.sin_port = htons(g_port);
+
+						// 파일 정보 먼저 전송
+						retval = sendto(g_sock, (char*)&fileMsg, SIZE_TOT, 0,
+							(struct sockaddr*)&serveraddr4, sizeof(serveraddr4));
+						if (retval == SOCKET_ERROR) {
+							MessageBox(hDlg, _T("파일 정보 전송 실패"), _T("오류"), MB_ICONERROR);
+							free(fileData);
+							return TRUE;
+						}
+
+						// 파일 데이터 전송
+						while (totalSent < fileSize) {
+							int remainSize = fileSize - totalSent;
+							int sendSize = min(remainSize, SIZE_TOT);
+							retval = sendto(g_sock, fileData + totalSent, sendSize, 0,
+								(struct sockaddr*)&serveraddr4, sizeof(serveraddr4));
+							if (retval == SOCKET_ERROR) {
+								MessageBox(hDlg, _T("파일 전송 실패"), _T("오류"), MB_ICONERROR);
+								break;
+							}
+							totalSent += retval;
+						}
 					}
-					totalSent += retval;
+					else { // UDP/IPv6
+						struct sockaddr_in6 serveraddr6;
+						memset(&serveraddr6, 0, sizeof(serveraddr6));
+						serveraddr6.sin6_family = AF_INET6;
+						inet_pton(AF_INET6, g_ipaddr, &serveraddr6.sin6_addr);
+						serveraddr6.sin6_port = htons(g_port);
+
+						// 파일 정보 먼저 전송
+						retval = sendto(g_sock, (char*)&fileMsg, SIZE_TOT, 0,
+							(struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
+						if (retval == SOCKET_ERROR) {
+							MessageBox(hDlg, _T("파일 정보 전송 실패"), _T("오류"), MB_ICONERROR);
+							free(fileData);
+							return TRUE;
+						}
+
+						// 파일 데이터 전송
+						while (totalSent < fileSize) {
+							int remainSize = fileSize - totalSent;
+							int sendSize = min(remainSize, SIZE_TOT);
+							retval = sendto(g_sock, fileData + totalSent, sendSize, 0,
+								(struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
+							if (retval == SOCKET_ERROR) {
+								MessageBox(hDlg, _T("파일 전송 실패"), _T("오류"), MB_ICONERROR);
+								break;
+							}
+							totalSent += retval;
+						}
+					}
+				}
+				else { // TCP 전송
+					// 파일 정보 먼저 전송
+					retval = send(g_sock, (char*)&fileMsg, SIZE_TOT, 0);
+					if (retval == SOCKET_ERROR) {
+						MessageBox(hDlg, _T("파일 정보 전송 실패"), _T("오류"), MB_ICONERROR);
+						free(fileData);
+						return TRUE;
+					}
+
+					// 파일 데이터 전송
+					while (totalSent < fileSize) {
+						int remainSize = fileSize - totalSent;
+						int sendSize = min(remainSize, SIZE_TOT);
+						retval = send(g_sock, fileData + totalSent, sendSize, 0);
+						if (retval == SOCKET_ERROR) {
+							MessageBox(hDlg, _T("파일 전송 실패"), _T("오류"), MB_ICONERROR);
+							break;
+						}
+						totalSent += retval;
+					}
 				}
 
 				free(fileData);
@@ -554,7 +620,6 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 
 			char fullFilePath[MAX_PATH];
 			PathCombineA(fullFilePath, exePath, file_msg->filename);
-
 			// 파일 생성
 			hFile = CreateFileA(fullFilePath,  // fullFilePath 사용
 				GENERIC_WRITE,
@@ -576,7 +641,24 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 				file_msg->filename, file_msg->filesize);
 
 			while (remainBytes > 0) {
-				retval = recv(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL);
+				if (g_isUDP) {
+					if (!g_isIPv6) { // UDP/IPv4
+						struct sockaddr_in peeraddr;
+						int addrlen = sizeof(peeraddr);
+						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), 0,
+							(struct sockaddr*)&peeraddr, &addrlen);
+					}
+					else { // UDP/IPv6
+						struct sockaddr_in6 peeraddr;
+						int addrlen = sizeof(peeraddr);
+						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), 0,
+							(struct sockaddr*)&peeraddr, &addrlen);
+					}
+				}
+				else {
+					retval = recv(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL);
+				}
+
 				if (retval == SOCKET_ERROR || retval == 0) {
 					DisplayText("[오류] 파일 수신 실패\r\n");
 					break;
@@ -590,7 +672,7 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 
 			CloseHandle(hFile);
 			hFile = INVALID_HANDLE_VALUE;
-			DisplayText("파일 수신 완료! (%d/%d 바이트)\r\n",totalReceived, file_msg->filesize);
+			DisplayText("파일 수신 완료! (%d/%d 바이트)\r\n", totalReceived, file_msg->filesize);
 		}
 	}
 
