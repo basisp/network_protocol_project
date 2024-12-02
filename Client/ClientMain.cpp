@@ -590,7 +590,7 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 
 			CloseHandle(hFile);
 			hFile = INVALID_HANDLE_VALUE;
-			DisplayText("파일 수신 완료! (%d/%d 바이트)\r\n", totalReceived, file_msg->filesize);
+			DisplayText("파일 수신 완료! (%d/%d 바이트)\r\n",totalReceived, file_msg->filesize);
 		}
 	}
 
