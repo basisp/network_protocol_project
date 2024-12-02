@@ -232,6 +232,7 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			TCHAR szFile[MAX_PATH] = { 0 };
 			TCHAR szFilter[] = _T("Text & Image Files(*.txt;*.jpg;*.jpeg;*.png;*.bmp)\0*.txt;*.jpg;*.jpeg;*.png;*.bmp\0All Files(*.*)\0*.*\0");
 
+
 			// 열기 대화상자 구조체 초기화
 			ofn.lStructSize = sizeof(OPENFILENAME);
 			ofn.hwndOwner = hDlg;
@@ -517,9 +518,14 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 	while (1) {
 		retval = recv(g_sock, (char*)&comm_msg, SIZE_TOT, MSG_WAITALL);
 		if (retval == 0 || retval == SOCKET_ERROR) {
+			if (retval == SOCKET_ERROR) {
+				DisplayText("[오류] 소켓 에러 발생\r\n");
+			}
+			else {
+				DisplayText("[정보] 서버와 연결이 끊어졌습니다.\r\n");
+			}
 			break;
 		}
-
 		if (comm_msg.type == TYPE_CHAT) {
 			chat_msg = (CHAT_MSG*)&comm_msg;
 			DisplayText("[받은 메시지] %s\r\n", chat_msg->msg);
@@ -535,11 +541,22 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 			erasepic_msg = (ERASEPIC_MSG*)&comm_msg;
 			SendMessage(g_hDrawWnd, WM_ERASEPIC, 0, 0);
 		}
+
 		else if (comm_msg.type == TYPE_FILE) {
 			file_msg = (FILE_MSG*)&comm_msg;
 
+			// 현재 실행 파일의 경로 얻기
+			char exePath[MAX_PATH];
+			GetModuleFileNameA(NULL, exePath, MAX_PATH);
+
+			// 실행 파일의 디렉토리 경로만 추출
+			PathRemoveFileSpecA(exePath);
+
+			char fullFilePath[MAX_PATH];
+			PathCombineA(fullFilePath, exePath, file_msg->filename);
+
 			// 파일 생성
-			hFile = CreateFileA(file_msg->filename,
+			hFile = CreateFileA(fullFilePath,  // fullFilePath 사용
 				GENERIC_WRITE,
 				0,
 				NULL,
@@ -573,8 +590,7 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 
 			CloseHandle(hFile);
 			hFile = INVALID_HANDLE_VALUE;
-			DisplayText("파일 수신 완료! (%d/%d 바이트)\r\n",
-				totalReceived, file_msg->filesize);
+			DisplayText("파일 수신 완료! (%d/%d 바이트)\r\n", totalReceived, file_msg->filesize);
 		}
 	}
 
