@@ -315,6 +315,90 @@ int main(int argc, char* argv[]) {
                         }
                     }
                 }
+                else { // UDP
+                    struct sockaddr* client_addr;
+                    int addr_len;
+                    if (ptr->isIpv6) {
+                        client_addr = (struct sockaddr*)&ptr->clientaddr6;
+                        addr_len = sizeof(sockaddr_in6);
+                    }
+                    else {
+                        client_addr = (struct sockaddr*)&ptr->clientaddr4;
+                        addr_len = sizeof(sockaddr_in);
+                    }
+                    retval = recvfrom(ptr->sock, ptr->buf, BUFSIZE, 0, client_addr, &addr_len);
+                    if (retval == SOCKET_ERROR) {
+                        RemoveSocketInfo(i);
+                        continue;
+                    }
+
+                    // 메시지 타입 확인
+                    int type = *(int*)ptr->buf;
+                    if (type == TYPE_FILE) {
+                        FILE_MSG* filemsg = (FILE_MSG*)ptr->buf;
+                        ptr->isReceivingFile = true;
+                        ptr->remainFileSize = filemsg->filesize;
+                        printf("[UDP 파일 전송 시작] %s (%d 바이트)\n",
+                            filemsg->filename, filemsg->filesize);
+
+                        // 다른 클라이언트들에게 전송
+                        for (int j = 0; j < nTotalSockets; j++) {
+                            if (j != i) {
+                                SOCKETINFO* ptr2 = SocketInfoArray[j];
+                                if (ptr2->isUDP) {
+                                    if (ptr2->isIpv6) {
+                                        retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0,
+                                            (struct sockaddr*)&ptr2->clientaddr6, sizeof(sockaddr_in6));
+                                    }
+                                    else {
+                                        retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0,
+                                            (struct sockaddr*)&ptr2->clientaddr4, sizeof(sockaddr_in));
+                                    }
+                                }
+                                else {
+                                    retval = send(ptr2->sock, ptr->buf, SIZE_TOT, 0);
+                                }
+                                if (retval == SOCKET_ERROR) {
+                                    RemoveSocketInfo(j);
+                                    --j;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    else if (ptr->isReceivingFile) {
+                        // UDP 파일 데이터 전송
+                        for (int j = 0; j < nTotalSockets; j++) {
+                            if (j != i) {
+                                SOCKETINFO* ptr2 = SocketInfoArray[j];
+                                if (ptr2->isUDP) {
+                                    if (ptr2->isIpv6) {
+                                        retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0,
+                                            (struct sockaddr*)&ptr2->clientaddr6, sizeof(sockaddr_in6));
+                                    }
+                                    else {
+                                        retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0,
+                                            (struct sockaddr*)&ptr2->clientaddr4, sizeof(sockaddr_in));
+                                    }
+                                }
+                                else {
+                                    retval = send(ptr2->sock, ptr->buf, retval, 0);
+                                }
+                                if (retval == SOCKET_ERROR) {
+                                    RemoveSocketInfo(j);
+                                    --j;
+                                    continue;
+                                }
+                            }
+                        }
+                        ptr->remainFileSize -= retval;
+                        if (ptr->remainFileSize <= 0) {
+                            ptr->isReceivingFile = false;
+                            printf("[UDP 파일 전송 완료]\n");
+                        }
+                    }
+
+                }
             }
         }
     }
