@@ -544,6 +544,7 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 		inet_pton(AF_INET, g_ipaddr, &serveraddr4.sin_addr);
 		serveraddr4.sin_port = htons(g_port);
 
+		retval = sendto(g_sock, "UDP/IPv4 연결 확인", sizeof("UDP/IPv4 연결 확인"), 0, (struct sockaddr *)&serveraddr4, sizeof(serveraddr4));
 	}
 	else if (g_isIPv6 == true && g_isUDP == true) {// UDP/IPv6 서버
 		//MessageBox(NULL, _T("아직 구현하지 않았습니다."), _T("알림"), MB_ICONERROR);
@@ -556,9 +557,10 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 		serveraddr6.sin6_family = AF_INET6;
 		inet_pton(AF_INET6, g_ipaddr, &serveraddr6.sin6_addr);
 		serveraddr6.sin6_port = htons(g_port);		
+
+		retval = sendto(g_sock, "UDP/IPv6 연결 확인", sizeof("UDP/IPv4 연결 확인"), 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
 	}
 	MessageBox(NULL, _T("서버에 접속했습니다."), _T("알림"), MB_ICONINFORMATION);
-
 	// 읽기 쓰기 스레드 생성
 	HANDLE hThread[2];
 	hThread[0] = CreateThread(NULL, 0, ReadThread, NULL, 0, NULL);
@@ -569,6 +571,7 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 	//스레드 종료 대기 (둘 중 하나라도 종료할 때까지
 	retval = WaitForMultipleObjects(2, hThread, FALSE, INFINITE);
 	retval += WAIT_OBJECT_0;
+
 	if (retval == 0)
 		TerminateThread(hThread[1], 1);
 	else
