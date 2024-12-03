@@ -125,7 +125,7 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 	static HWND hEditIPaddr;
 	static HWND hEditPort;
 	static HWND hChkIsUDP;
-	static HWND hBtnConnect;
+	static HWND hBtnConnect;	
 	static HWND hBtnSendFile; //전역 변수에도 저장
 	static HWND hBtnSendMsg;; //전역 변수에도 저장
 	static HWND hEditMsg;
@@ -442,7 +442,7 @@ LRESULT CALLBACK ChildWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 		return 0;
 	case WM_MOUSEMOVE:
 		if (bDrawing && g_bCommStarted) {
-			//  마우스 클릭 자표 얻기
+			//  마우스 클릭 좌표 얻기
 			x1 = LOWORD(lParam);
 			y1 = HIWORD(lParam);
 			// 선 그리기 메시지 보내기
@@ -533,8 +533,6 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 		if (retval == SOCKET_ERROR) err_quit("connect()");
 	}
 	else if (g_isIPv6 == false && g_isUDP == true) {// UDP/IPv4 서버
-		//MessageBox(NULL, _T("아직 구현하지 않았습니다."), _T("알림"), MB_ICONERROR);
-		//exit(1);
 		// 소켓 생성
 		g_sock = socket(AF_INET, SOCK_DGRAM, 0);
 		if (g_sock == SOCKET_ERROR) err_quit("socket()");
@@ -544,11 +542,9 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 		inet_pton(AF_INET, g_ipaddr, &serveraddr4.sin_addr);
 		serveraddr4.sin_port = htons(g_port);
 
-		retval = sendto(g_sock, "UDP/IPv4 연결 확인", sizeof("UDP/IPv4 연결 확인"), 0, (struct sockaddr *)&serveraddr4, sizeof(serveraddr4));
+		retval = sendto(g_sock, "UDP/IPv4 연결 확인", strlen("UDP/IPv4 연결 확인"), 0, (struct sockaddr *)&serveraddr4, sizeof(serveraddr4));
 	}
 	else if (g_isIPv6 == true && g_isUDP == true) {// UDP/IPv6 서버
-		//MessageBox(NULL, _T("아직 구현하지 않았습니다."), _T("알림"), MB_ICONERROR);
-		//exit(1);
 		// 소켓 생성
 		g_sock = socket(AF_INET6, SOCK_DGRAM, 0);
 		if (g_sock == SOCKET_ERROR) err_quit("socket()");
@@ -558,7 +554,7 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 		inet_pton(AF_INET6, g_ipaddr, &serveraddr6.sin6_addr);
 		serveraddr6.sin6_port = htons(g_port);		
 
-		retval = sendto(g_sock, "UDP/IPv6 연결 확인", sizeof("UDP/IPv4 연결 확인"), 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
+		retval = sendto(g_sock, "UDP/IPv6 연결 확인", strlen("UDP/IPv4 연결 확인"), 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
 	}
 	MessageBox(NULL, _T("서버에 접속했습니다."), _T("알림"), MB_ICONINFORMATION);
 	// 읽기 쓰기 스레드 생성
@@ -571,7 +567,6 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 	// 스레드 종료 대기 (둘 중 하나라도 종료할 때까지
 	retval = WaitForMultipleObjects(2, hThread, FALSE, INFINITE);
 	retval += WAIT_OBJECT_0;
-
 	if (retval == 0)
 		TerminateThread(hThread[1], 1);
 	else
@@ -579,14 +574,13 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 	CloseHandle(hThread[0]);
 	CloseHandle(hThread[1]);
 	
-	if (!g_isUDP) {
-		MessageBox(NULL, _T("연결이 끊겼습니다."), _T("알림"), MB_ICONERROR);
-		EnableWindow(g_hBtnSendFile, FALSE);
-		EnableWindow(g_hBtnSendMsg, FALSE);
-		EnableWindow(g_hBtnErasePic, FALSE);
-		g_bCommStarted = false;
-		closesocket(g_sock);
-	}
+	MessageBox(NULL, _T("연결이 끊겼습니다."), _T("알림"), MB_ICONERROR);
+	EnableWindow(g_hBtnSendFile, FALSE);
+	EnableWindow(g_hBtnSendMsg, FALSE);
+	EnableWindow(g_hBtnErasePic, FALSE);
+	g_bCommStarted = false;
+	closesocket(g_sock);
+
 	return 0;
 }
 
@@ -602,15 +596,13 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 	static HANDLE hFile = INVALID_HANDLE_VALUE;
 	static DWORD totalReceived = 0;
 	static char fileBuffer[SIZE_TOT];
-
+	int addrlen;
 	while (1) {
 		if (g_isUDP) {
-			// UDP
-			int addrlen;
 			if (g_isIPv6) {
 				struct sockaddr_in6 peeraddr;
 				addrlen = sizeof(peeraddr);
-				retval = recvfrom(g_sock, (char*)&comm_msg, SIZE_TOT, MSG_WAITALL, (struct sockaddr*)&peeraddr, &addrlen);
+				retval = recvfrom(g_sock, (char*)&comm_msg, SIZE_TOT, 0, (struct sockaddr*)&peeraddr, &addrlen);
 				if (retval == SOCKET_ERROR) {
 					err_display("recvfrom()");
 					break;
@@ -619,175 +611,104 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 			else {
 				struct sockaddr_in peeraddr;
 				addrlen = sizeof(peeraddr);
-				retval = recvfrom(g_sock, (char*)&comm_msg, SIZE_TOT, MSG_WAITALL, (struct sockaddr*)&peeraddr, &addrlen);
+				retval = recvfrom(g_sock, (char*)&comm_msg, SIZE_TOT, 0, (struct sockaddr*)&peeraddr, &addrlen);
 				if (retval == SOCKET_ERROR) {
 					err_display("recvfrom()");
 					break;
 				}
 			}
-			if (comm_msg.type == TYPE_CHAT) {
-				chat_msg = (CHAT_MSG*)&comm_msg;
-				DisplayText("[받은 메시지] %s\r\n", chat_msg->msg);
-			}
-			else if (comm_msg.type == TYPE_DRAWLINE) {
-				drawline_msg = (DRAWLINE_MSG*)&comm_msg;
-				g_drawcolor = drawline_msg->color;
-				SendMessage(g_hDrawWnd, WM_DRAWLINE,
-					MAKEWPARAM(drawline_msg->x0, drawline_msg->y0),
-					MAKELPARAM(drawline_msg->x1, drawline_msg->y1));
-			}
-			else if (comm_msg.type == TYPE_ERASEPIC) {
-				erasepic_msg = (ERASEPIC_MSG*)&comm_msg;
-				SendMessage(g_hDrawWnd, WM_ERASEPIC, 0, 0);
-			}
-			else if (comm_msg.type == TYPE_FILE) {
-				file_msg = (FILE_MSG*)&comm_msg;
-
-				// 파일 생성
-				hFile = CreateFileA(file_msg->filename,
-					GENERIC_WRITE,
-					0,
-					NULL,
-					CREATE_ALWAYS,
-					FILE_ATTRIBUTE_NORMAL,
-					NULL);
-
-				if (hFile == INVALID_HANDLE_VALUE) {
-					DisplayText("[오류] 파일 생성 실패: %s\r\n", file_msg->filename);
-					continue;
-				}
-
-				// 파일 데이터 수신
-				totalReceived = 0;
-				DWORD remainBytes = file_msg->filesize;
-				DisplayText("파일 수신 시작: %s (%d 바이트)\r\n",
-					file_msg->filename, file_msg->filesize);
-
-				while (remainBytes > 0) {
-					if (g_isIPv6) {
-						struct sockaddr_in6 peeraddr;
-						addrlen = sizeof(peeraddr);
-						retval = recvfrom(g_sock, (char*)&comm_msg, SIZE_TOT, MSG_WAITALL, (struct sockaddr*)&peeraddr, &addrlen);
-						if (retval == SOCKET_ERROR || retval == 0) {
-							DisplayText("[오류] 파일 수신 실패\r\n");
-							break;
-						}
-					}
-					else {
-						struct sockaddr_in peeraddr;
-						addrlen = sizeof(peeraddr);
-						retval = recvfrom(g_sock, (char*)&comm_msg, SIZE_TOT, MSG_WAITALL, (struct sockaddr*)&peeraddr, &addrlen);
-						if (retval == SOCKET_ERROR || retval == 0) {
-							DisplayText("[오류] 파일 수신 실패\r\n");
-							break;
-						}
-					}
-					DWORD written;
-					WriteFile(hFile, fileBuffer, retval, &written, NULL);
-					totalReceived += written;
-					remainBytes -= retval;
-				}
-
-				CloseHandle(hFile);
-				hFile = INVALID_HANDLE_VALUE;
-				DisplayText("파일 수신 완료! (%d/%d 바이트)\r\n",
-					totalReceived, file_msg->filesize);
-			}
 		}
-		else {
-			// TCP
-			retval = recv(g_sock, (char*)&comm_msg, SIZE_TOT, MSG_WAITALL);
-			if (retval == 0 || retval == SOCKET_ERROR) {
-				if (retval == SOCKET_ERROR) {
-					DisplayText("[오류] 소켓 에러 발생\r\n");
+		else retval = recv(g_sock, (char*)&comm_msg, SIZE_TOT, MSG_WAITALL);
+		if (retval == 0 || retval == SOCKET_ERROR) {
+			if (retval == SOCKET_ERROR) {
+				DisplayText("[오류] 소켓 에러 발생\r\n");
+			}
+			else {
+				DisplayText("[정보] 서버와 연결이 끊어졌습니다.\r\n");
+			}
+			break;
+		}
+		if (comm_msg.type == TYPE_CHAT) {
+			chat_msg = (CHAT_MSG*)&comm_msg;
+			DisplayText("[받은 메시지] %s\r\n", chat_msg->msg);
+		}
+		else if (comm_msg.type == TYPE_DRAWLINE) {
+			drawline_msg = (DRAWLINE_MSG*)&comm_msg;
+			g_drawcolor = drawline_msg->color;
+			SendMessage(g_hDrawWnd, WM_DRAWLINE,
+				MAKEWPARAM(drawline_msg->x0, drawline_msg->y0),
+				MAKELPARAM(drawline_msg->x1, drawline_msg->y1));
+		}
+		else if (comm_msg.type == TYPE_ERASEPIC) {
+			erasepic_msg = (ERASEPIC_MSG*)&comm_msg;
+			SendMessage(g_hDrawWnd, WM_ERASEPIC, 0, 0);
+		}
+
+		else if (comm_msg.type == TYPE_FILE) {
+			file_msg = (FILE_MSG*)&comm_msg;
+
+			// 현재 실행 파일의 경로 얻기
+			char exePath[MAX_PATH];
+			GetModuleFileNameA(NULL, exePath, MAX_PATH);
+
+			// 실행 파일의 디렉토리 경로만 추출
+			PathRemoveFileSpecA(exePath);
+
+			char fullFilePath[MAX_PATH];
+			PathCombineA(fullFilePath, exePath, file_msg->filename);
+			// 파일 생성
+			hFile = CreateFileA(fullFilePath,  // fullFilePath 사용
+				GENERIC_WRITE,
+				0,
+				NULL,
+				CREATE_ALWAYS,
+				FILE_ATTRIBUTE_NORMAL,
+				NULL);
+
+			if (hFile == INVALID_HANDLE_VALUE) {
+				DisplayText("[오류] 파일 생성 실패: %s\r\n", file_msg->filename);
+				continue;
+			}
+
+			// 파일 데이터 수신
+			totalReceived = 0;
+			DWORD remainBytes = file_msg->filesize;
+			DisplayText("파일 수신 시작: %s (%d 바이트)\r\n",
+				file_msg->filename, file_msg->filesize);
+
+			while (remainBytes > 0) {
+				if (g_isUDP) {
+					if (!g_isIPv6) { // UDP/IPv4
+						struct sockaddr_in peeraddr;
+						int addrlen = sizeof(peeraddr);
+						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL,
+							(struct sockaddr*)&peeraddr, &addrlen);
+					}
+					else { // UDP/IPv6
+						struct sockaddr_in6 peeraddr;
+						int addrlen = sizeof(peeraddr);
+						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL,
+							(struct sockaddr*)&peeraddr, &addrlen);
+					}
 				}
 				else {
-					DisplayText("[정보] 서버와 연결이 끊어졌습니다.\r\n");
-				}
-				break;
-			}
-			if (comm_msg.type == TYPE_CHAT) {
-				chat_msg = (CHAT_MSG*)&comm_msg;
-				DisplayText("[받은 메시지] %s\r\n", chat_msg->msg);
-			}
-			else if (comm_msg.type == TYPE_DRAWLINE) {
-				drawline_msg = (DRAWLINE_MSG*)&comm_msg;
-				g_drawcolor = drawline_msg->color;
-				SendMessage(g_hDrawWnd, WM_DRAWLINE,
-					MAKEWPARAM(drawline_msg->x0, drawline_msg->y0),
-					MAKELPARAM(drawline_msg->x1, drawline_msg->y1));
-			}
-			else if (comm_msg.type == TYPE_ERASEPIC) {
-				erasepic_msg = (ERASEPIC_MSG*)&comm_msg;
-				SendMessage(g_hDrawWnd, WM_ERASEPIC, 0, 0);
-			}
-
-			else if (comm_msg.type == TYPE_FILE) {
-				file_msg = (FILE_MSG*)&comm_msg;
-
-				// 현재 실행 파일의 경로 얻기
-				char exePath[MAX_PATH];
-				GetModuleFileNameA(NULL, exePath, MAX_PATH);
-
-				// 실행 파일의 디렉토리 경로만 추출
-				PathRemoveFileSpecA(exePath);
-
-				char fullFilePath[MAX_PATH];
-				PathCombineA(fullFilePath, exePath, file_msg->filename);
-				// 파일 생성
-				hFile = CreateFileA(fullFilePath,  // fullFilePath 사용
-					GENERIC_WRITE,
-					0,
-					NULL,
-					CREATE_ALWAYS,
-					FILE_ATTRIBUTE_NORMAL,
-					NULL);
-
-				if (hFile == INVALID_HANDLE_VALUE) {
-					DisplayText("[오류] 파일 생성 실패: %s\r\n", file_msg->filename);
-					continue;
+					retval = recv(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL);
 				}
 
-				// 파일 데이터 수신
-				totalReceived = 0;
-				DWORD remainBytes = file_msg->filesize;
-				DisplayText("파일 수신 시작: %s (%d 바이트)\r\n",
-					file_msg->filename, file_msg->filesize);
-
-				while (remainBytes > 0) {
-					if (g_isUDP) {
-						if (!g_isIPv6) { // UDP/IPv4
-							struct sockaddr_in peeraddr;
-							int addrlen = sizeof(peeraddr);
-							retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), 0,
-								(struct sockaddr*)&peeraddr, &addrlen);
-						}
-						else { // UDP/IPv6
-							struct sockaddr_in6 peeraddr;
-							int addrlen = sizeof(peeraddr);
-							retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), 0,
-								(struct sockaddr*)&peeraddr, &addrlen);
-						}
-					}
-					else {
-						retval = recv(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL);
-					}
-
-					if (retval == SOCKET_ERROR || retval == 0) {
-						DisplayText("[오류] 파일 수신 실패\r\n");
-						break;
-					}
-
-					DWORD written;
-					WriteFile(hFile, fileBuffer, retval, &written, NULL);
-					totalReceived += written;
-					remainBytes -= retval;
+				if (retval == SOCKET_ERROR || retval == 0) {
+					DisplayText("[오류] 파일 수신 실패\r\n");
+					break;
 				}
 
-				CloseHandle(hFile);
-				hFile = INVALID_HANDLE_VALUE;
-				DisplayText("파일 수신 완료! (%d/%d 바이트)\r\n", totalReceived, file_msg->filesize);
+				DWORD written;
+				WriteFile(hFile, fileBuffer, retval, &written, NULL);
+				totalReceived += written;
+				remainBytes -= retval;
 			}
+
+			CloseHandle(hFile);
+			hFile = INVALID_HANDLE_VALUE;
+			DisplayText("파일 수신 완료! (%d/%d 바이트)\r\n", totalReceived, file_msg->filesize);
 		}
 		
 	}
@@ -819,17 +740,14 @@ DWORD WINAPI WriteThread(LPVOID	arg) {
 			// UDP
 			if (g_isIPv6) {
 				retval = sendto(g_sock, (char*)&g_chatmsg, SIZE_TOT, 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
-				if (retval == SOCKET_ERROR) {
-					err_display("sendto()");
-					break;
-				}
-			}
+			}				
 			else {
 				retval = sendto(g_sock, (char*)&g_chatmsg, SIZE_TOT, 0, (struct sockaddr*)&serveraddr4, sizeof(serveraddr4));
-				if (retval == SOCKET_ERROR) {
-					err_display("sendto()");
-					break;
-				}
+			}
+			
+			if (retval == SOCKET_ERROR) {
+				err_display("sendto()");
+				break;
 			}
 		}
 		else {

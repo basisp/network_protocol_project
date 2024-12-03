@@ -44,7 +44,10 @@ typedef struct _SOCKETINFO
     DWORD remainFileSize;   // 남은 파일 크기
 } SOCKETINFO;
 
+/* 전역 변수 */
+// 소켓 개수
 int nTotalSockets = 0;
+// 소켓 구조체 배열
 SOCKETINFO* SocketInfoArray[FD_SETSIZE];
 
 //소켓 정보 관리 함수
@@ -54,6 +57,8 @@ void err_quit(const char* msg);
 void err_display(const char* msg);
 void err_display(int errcode);
 int sendAll(SOCKETINFO* ptr, int retval, char* buf, int j, int addrlen);
+int getIndexUDPSocket(struct sockaddr_in*);
+int getIndexUDPSocket(struct sockaddr_in6*);
 
 int main(int argc, char* argv[]) {
     int retval;
@@ -99,12 +104,6 @@ int main(int argc, char* argv[]) {
     /***UDP - IPv4소켓 생성***/
     SOCKET Usock4 = socket(AF_INET, SOCK_DGRAM, 0);
     if (Usock4 == INVALID_SOCKET) err_quit("socket()");
-
-
-    // SO_REUSEADDR 소켓 옵션 설정
-    DWORD optval = 1;
-    retval = setsockopt(Usock4, SOL_SOCKET, SO_REUSEADDR, (char*)optval, sizeof(optval));
-    if (retval == SOCKET_ERROR) err_quit("setsockopt()");
     // bind()
     struct sockaddr_in serveraddr4_UDP;
     memset(&serveraddr4_UDP, 0, sizeof(serveraddr4_UDP));
@@ -113,6 +112,8 @@ int main(int argc, char* argv[]) {
     serveraddr4_UDP.sin_port = htons(SERVERPORT);
     retval = bind(Usock4, (struct sockaddr*)&serveraddr4_UDP, sizeof(serveraddr4_UDP));
     if (retval == SOCKET_ERROR) err_quit("bind(U4)");
+
+
     /*---UDP - IPv4소켓 생성 완료---*/
 
 
@@ -120,11 +121,6 @@ int main(int argc, char* argv[]) {
     //소켓 생성
     SOCKET Usock6 = socket(AF_INET6, SOCK_DGRAM, 0);
     if (Usock6 == INVALID_SOCKET) err_quit("socket()");
-
-    // SO_REUSEADDR 소켓 옵션 설정
-    DWORD optval = 1;
-    retval = setsockopt(Usock6, SOL_SOCKET, SO_REUSEADDR, (char*)optval, sizeof(optval));
-    if (retval == SOCKET_ERROR) err_quit("setsockopt()");
     // bind()
     struct sockaddr_in6 serveraddr6_UDP;
     memset(&serveraddr6_UDP, 0, sizeof(serveraddr6_UDP));
@@ -202,25 +198,103 @@ int main(int argc, char* argv[]) {
             addrlen = sizeof(clientaddr4);
             retval = recvfrom(Usock4, buf, BUFSIZE, 0,
                 (struct sockaddr*)&clientaddr4, &addrlen);
-            buf[retval] = '\0';
+            
             char addr[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &clientaddr4.sin_addr, addr, sizeof(addr));
+            int i = getIndexUDPSocket(&clientaddr4);
+            if (i != -1) {
+                // 데이터 통신
+                SOCKETINFO* ptr = SocketInfoArray[i];
+                // UDP
+                // 메시지 타입 확인
+                int type = *(int*)buf;
 
-            if (!AddSocketInfo(Usock4, false, true)) {
-                continue;
+                if (type == TYPE_FILE) {  // 파일 전송 시작
+                    FILE_MSG* filemsg = (FILE_MSG*)buf;
+                    ptr->isReceivingFile = true;
+                    ptr->remainFileSize = filemsg->filesize;
+
+                    printf("[파일 전송 시작] %s (%d 바이트)\n",
+                        filemsg->filename, filemsg->filesize);
+
+                    // 다른 클라이언트들에게 파일 정보 전송
+                    for (int j = 0; j < nTotalSockets; j++) {
+                        if (j != i) {  // 송신자는 제외
+                            SOCKETINFO* ptr2 = SocketInfoArray[j];
+                            if (ptr2->isUDP) {
+                                if (ptr2->isIpv6) retval = sendto(ptr2->sock, buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr6, sizeof(ptr2->clientaddr6));
+                                else retval = sendto(ptr2->sock, buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr4, sizeof(ptr2->clientaddr4));
+                            }
+                            else retval = send(ptr2->sock, buf, SIZE_TOT, 0);
+                            if (retval == SOCKET_ERROR) {
+                                err_display("send()");
+                                RemoveSocketInfo(j);
+                                --j;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                else if (ptr->isReceivingFile) {  // 파일 데이터 수신 중
+                    // 다른 클라이언트들에게 파일 데이터 전송
+                    for (int j = 0; j < nTotalSockets; j++) {
+                        if (j != i) {  // 송신자는 제외
+                            SOCKETINFO* ptr2 = SocketInfoArray[j];
+                            if (ptr2->isUDP) {
+                                if (ptr2->isIpv6) retval = sendto(ptr2->sock, buf, retval, 0, (struct sockaddr*)&ptr2->clientaddr6, sizeof(ptr2->clientaddr6));
+                                else retval = sendto(ptr2->sock, buf, retval, 0, (struct sockaddr*)&ptr2->clientaddr4, sizeof(ptr2->clientaddr4));
+                            }
+                            else retval = send(ptr2->sock, buf, retval, 0);
+                            if (retval == SOCKET_ERROR) {
+                                err_display("send()");
+                                RemoveSocketInfo(j);
+                                --j;
+                                continue;
+                            }
+                        }
+                    }
+                    ptr->remainFileSize -= retval;
+                    if (ptr->remainFileSize <= 0) {
+                        ptr->isReceivingFile = false;
+                        printf("[파일 전송 완료]\n");
+                    }
+                }
+                else {  // 일반 메시지 처리
+                    buf[retval] = '\0';
+                    printf("[UDP/IPv4/%s:%d] %s\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port), buf);
+
+                    // 현재 접속한 모든 클라이언트에 데이터 전송
+                    for (int j = 0; j < nTotalSockets; j++) {
+                        SOCKETINFO* ptr2 = SocketInfoArray[j];
+                        retval = sendAll(ptr2, retval, buf, j, addrlen);
+                        if (retval == SOCKET_ERROR) {
+                            err_display("send()");
+                            RemoveSocketInfo(j);
+                            --j;
+                            continue;
+                        }
+                    }
+                }
+            }
+            else {
+                if (!AddSocketInfo(Usock4, false, true)) {
+                    continue;
+                }
+                SOCKETINFO* ptr = SocketInfoArray[nTotalSockets - 1];
+                buf[retval] = '\0';
+                strcpy(ptr->buf, buf);
+                strcpy(ptr->addr4, addr);
+                ptr->clientaddr4 = clientaddr4;
+                ptr->addrlen = addrlen;
+                printf("[UDP/IPv4/%s:%d] %s\n",
+                    ptr->addr4, ntohs(ptr->clientaddr4.sin_port), ptr->buf);
             }
             if (retval == 0 || retval == SOCKET_ERROR) { //일단 데이터를 못받거나 받는 도중 오류가 나면 실제로는 연결 해재같은건 없지만 그룹에서 탈락된것으로 간주(그룹도아니지만)
                 RemoveSocketInfo(nTotalSockets - 1);
                 continue;
             }
 
-            SOCKETINFO* ptr = SocketInfoArray[nTotalSockets - 1];
-            strcpy(ptr->buf, buf);
-            strcpy(ptr->addr4, addr);
-            ptr->clientaddr4 = clientaddr4;
-            ptr->addrlen = addrlen;
-            printf("[UDP/IPv4/%s:%d] %s\n",
-                ptr->addr4, ntohs(ptr->clientaddr4.sin_port), ptr->buf);
+            
         }
         //소켓 셋 검사(1-4) : 클라이언트 접속 수용 | udp ipv6
         if (FD_ISSET(Usock6, &rset)) {
@@ -228,24 +302,101 @@ int main(int argc, char* argv[]) {
             addrlen = sizeof(clientaddr6);
             retval = recvfrom(Usock6, buf, BUFSIZE, 0,
                 (struct sockaddr*)&clientaddr6, &addrlen);
-            buf[retval] = '\0';
             char addr[INET6_ADDRSTRLEN];
             inet_ntop(AF_INET6, &clientaddr6.sin6_addr, addr, sizeof(addr));
+            int i = getIndexUDPSocket(&clientaddr6);
+            if (i != -1) {
+                // 데이터 통신
+                SOCKETINFO* ptr = SocketInfoArray[i];
+                // UDP
 
-            if (!AddSocketInfo(Usock6, true, true)) {
-                continue;
+                // 메시지 타입 확인
+                int type = *(int*)ptr->buf;
+
+                if (type == TYPE_FILE) {  // 파일 전송 시작
+                    FILE_MSG* filemsg = (FILE_MSG*)buf;
+                    ptr->isReceivingFile = true;
+                    ptr->remainFileSize = filemsg->filesize;
+
+                    printf("[파일 전송 시작] %s (%d 바이트)\n",
+                        filemsg->filename, filemsg->filesize);
+
+                    // 다른 클라이언트들에게 파일 정보 전송
+                    for (int j = 0; j < nTotalSockets; j++) {
+                        if (j != i) {  // 송신자는 제외
+                            SOCKETINFO* ptr2 = SocketInfoArray[j];
+                            if (ptr2->isUDP) {
+                                if (ptr2->isIpv6) retval = sendto(ptr2->sock, buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr6, sizeof(ptr2->clientaddr6));
+                                else retval = sendto(ptr2->sock, buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr4, sizeof(ptr2->clientaddr4));
+                            }
+                            else retval = send(ptr2->sock, buf, SIZE_TOT, 0);
+                            if (retval == SOCKET_ERROR) {
+                                err_display("send()");
+                                RemoveSocketInfo(j);
+                                --j;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                else if (ptr->isReceivingFile) {  // 파일 데이터 수신 중
+                    // 다른 클라이언트들에게 파일 데이터 전송
+                    for (int j = 0; j < nTotalSockets; j++) {
+                        if (j != i) {  // 송신자는 제외
+                            SOCKETINFO* ptr2 = SocketInfoArray[j];
+                            if (ptr2->isUDP) {
+                                if (ptr2->isIpv6) retval = sendto(ptr2->sock, buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr6, sizeof(ptr2->clientaddr6));
+                                else retval = sendto(ptr2->sock, buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr4, sizeof(ptr2->clientaddr4));
+                            }
+                            else retval = send(ptr2->sock, buf, SIZE_TOT, 0);
+                            if (retval == SOCKET_ERROR) {
+                                err_display("send()");
+                                RemoveSocketInfo(j);
+                                --j;
+                                continue;
+                            }
+                        }
+                    }
+                    ptr->remainFileSize -= retval;
+                    if (ptr->remainFileSize <= 0) {
+                        ptr->isReceivingFile = false;
+                        printf("[파일 전송 완료]\n");
+                    }
+                }
+                else {  // 일반 메시지 처리
+                    buf[retval] = '\0';
+                    printf("[UDP/IPv6/%s:%d] %s\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port), buf);
+
+                    // 현재 접속한 모든 클라이언트에 데이터 전송
+                    for (int j = 0; j < nTotalSockets; j++) {
+                        SOCKETINFO* ptr2 = SocketInfoArray[j];
+                        retval = sendAll(ptr2, retval, buf, j, addrlen);
+                        if (retval == SOCKET_ERROR) {
+                            err_display("send()");
+                            RemoveSocketInfo(j);
+                            --j;
+                            continue;
+                        }
+                    }
+                }
+            }
+            else {
+                if (!AddSocketInfo(Usock6, true, true)) {
+                    continue;
+                }
+                SOCKETINFO* ptr = SocketInfoArray[nTotalSockets - 1];
+                buf[retval] = '\0';
+                strcpy(ptr->buf, buf);
+                strcpy(ptr->addr6, addr);
+                ptr->clientaddr6 = clientaddr6;
+                ptr->addrlen = addrlen;
+                printf("[UDP/IPv6/%s:%d] %s\n",
+                    ptr->addr6, ntohs(clientaddr6.sin6_port), ptr->buf);
             }
             if (retval == 0 || retval == SOCKET_ERROR) { //일단 데이터를 못받거나 받는 도중 오류가 나면 실제로는 연결 해재같은건 없지만 그룹에서 탈락된것으로 간주(그룹도아니지만)
                 RemoveSocketInfo(nTotalSockets - 1);
                 continue;
             }
-            SOCKETINFO* ptr = SocketInfoArray[nTotalSockets - 1];
-            strcpy(ptr->buf, buf);
-            strcpy(ptr->addr6, addr);
-            ptr->clientaddr6 = clientaddr6;
-            ptr->addrlen = addrlen;
-            printf("[UDP/IPv6/%s:%d] %s\n",
-                ptr->addr6, ntohs(clientaddr6.sin6_port), ptr->buf);
         }
 
         //데이터 통신
@@ -276,7 +427,12 @@ int main(int argc, char* argv[]) {
                         for (int j = 0; j < nTotalSockets; j++) {
                             if (j != i) {  // 송신자는 제외
                                 SOCKETINFO* ptr2 = SocketInfoArray[j];
-                                retval = send(ptr2->sock, ptr->buf, SIZE_TOT, 0);
+                                if (ptr2->isUDP) {
+                                    if (ptr2->isIpv6) retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr6, sizeof(ptr2->clientaddr6));
+                                    else retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr4, sizeof(ptr2->clientaddr4));
+                                }
+                                else retval = send(ptr2->sock, ptr->buf, SIZE_TOT, 0);
+                                
                                 if (retval == SOCKET_ERROR) {
                                     err_display("send()");
                                     RemoveSocketInfo(j);
@@ -291,7 +447,12 @@ int main(int argc, char* argv[]) {
                         for (int j = 0; j < nTotalSockets; j++) {
                             if (j != i) {  // 송신자는 제외
                                 SOCKETINFO* ptr2 = SocketInfoArray[j];
-                                retval = send(ptr2->sock, ptr->buf, retval, 0);
+                                if (ptr2->isUDP) {
+                                    if (ptr2->isIpv6) retval = sendto(ptr2->sock, ptr->buf, retval, 0, (struct sockaddr*)&ptr2->clientaddr6, sizeof(ptr2->clientaddr6));
+                                    else retval = sendto(ptr2->sock, ptr->buf, retval, 0, (struct sockaddr*)&ptr2->clientaddr4, sizeof(ptr2->clientaddr4));
+                                }
+                                else retval = send(ptr2->sock, ptr->buf, retval, 0);
+                               
                                 if (retval == SOCKET_ERROR) {
                                     err_display("send()");
                                     RemoveSocketInfo(j);
@@ -326,90 +487,6 @@ int main(int argc, char* argv[]) {
                             }
                         }
                     }
-                }
-                else { // UDP
-                    struct sockaddr* client_addr;
-                    int addr_len;
-                    if (ptr->isIpv6) {
-                        client_addr = (struct sockaddr*)&ptr->clientaddr6;
-                        addr_len = sizeof(sockaddr_in6);
-                    }
-                    else {
-                        client_addr = (struct sockaddr*)&ptr->clientaddr4;
-                        addr_len = sizeof(sockaddr_in);
-                    }
-                    retval = recvfrom(ptr->sock, ptr->buf, BUFSIZE, 0, client_addr, &addr_len);
-                    if (retval == SOCKET_ERROR) {
-                        RemoveSocketInfo(i);
-                        continue;
-                    }
-
-                    // 메시지 타입 확인
-                    int type = *(int*)ptr->buf;
-                    if (type == TYPE_FILE) {
-                        FILE_MSG* filemsg = (FILE_MSG*)ptr->buf;
-                        ptr->isReceivingFile = true;
-                        ptr->remainFileSize = filemsg->filesize;
-                        printf("[UDP 파일 전송 시작] %s (%d 바이트)\n",
-                            filemsg->filename, filemsg->filesize);
-
-                        // 다른 클라이언트들에게 전송
-                        for (int j = 0; j < nTotalSockets; j++) {
-                            if (j != i) {
-                                SOCKETINFO* ptr2 = SocketInfoArray[j];
-                                if (ptr2->isUDP) {
-                                    if (ptr2->isIpv6) {
-                                        retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0,
-                                            (struct sockaddr*)&ptr2->clientaddr6, sizeof(sockaddr_in6));
-                                    }
-                                    else {
-                                        retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0,
-                                            (struct sockaddr*)&ptr2->clientaddr4, sizeof(sockaddr_in));
-                                    }
-                                }
-                                else {
-                                    retval = send(ptr2->sock, ptr->buf, SIZE_TOT, 0);
-                                }
-                                if (retval == SOCKET_ERROR) {
-                                    RemoveSocketInfo(j);
-                                    --j;
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                    else if (ptr->isReceivingFile) {
-                        // UDP 파일 데이터 전송
-                        for (int j = 0; j < nTotalSockets; j++) {
-                            if (j != i) {
-                                SOCKETINFO* ptr2 = SocketInfoArray[j];
-                                if (ptr2->isUDP) {
-                                    if (ptr2->isIpv6) {
-                                        retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0,
-                                            (struct sockaddr*)&ptr2->clientaddr6, sizeof(sockaddr_in6));
-                                    }
-                                    else {
-                                        retval = sendto(ptr2->sock, ptr->buf, SIZE_TOT, 0,
-                                            (struct sockaddr*)&ptr2->clientaddr4, sizeof(sockaddr_in));
-                                    }
-                                }
-                                else {
-                                    retval = send(ptr2->sock, ptr->buf, retval, 0);
-                                }
-                                if (retval == SOCKET_ERROR) {
-                                    RemoveSocketInfo(j);
-                                    --j;
-                                    continue;
-                                }
-                            }
-                        }
-                        ptr->remainFileSize -= retval;
-                        if (ptr->remainFileSize <= 0) {
-                            ptr->isReceivingFile = false;
-                            printf("[UDP 파일 전송 완료]\n");
-                        }
-                    }
-
                 }
             }
         }
@@ -465,12 +542,11 @@ void err_display(int errcode)
 
 bool AddSocketInfo(SOCKET sock, bool isIPv6, bool isUDP) {
     if (nTotalSockets >= FD_SETSIZE) {
-        printf("[오류] 소켓 정보를 추가할 수 없습니다.!\n");
+        printf("[오류] 소켓 정보를 추가할 수 없습니다!\n");
         return false;
     }
 
     SOCKETINFO* ptr = new SOCKETINFO();
-
 
     if (ptr == NULL) {
         printf("[오류] 메모리가 부족합니다!\n");
@@ -484,6 +560,8 @@ bool AddSocketInfo(SOCKET sock, bool isIPv6, bool isUDP) {
         int addrlen = sizeof(struct sockaddr_in);
         getpeername(ptr->sock, (struct sockaddr*)&ptr->clientaddr4, &addrlen);
         inet_ntop(AF_INET, &ptr->clientaddr4.sin_addr, ptr->addr4, sizeof(ptr->addr4));
+        printf("소켓 추가 성공, %s:%d\n", ptr->addr4, htons(ptr->clientaddr4.sin_port));
+
     }
     else { //IPv6
         int addrlen = sizeof(struct sockaddr_in6);
@@ -491,6 +569,7 @@ bool AddSocketInfo(SOCKET sock, bool isIPv6, bool isUDP) {
         inet_ntop(AF_INET6, &ptr->clientaddr6.sin6_addr, ptr->addr6, sizeof(ptr->addr6));
     }
     SocketInfoArray[nTotalSockets++] = ptr;
+    printf("현재 소켓 개수: %d\n", nTotalSockets);
     return true;
 }
 
@@ -556,7 +635,7 @@ int sendAll(SOCKETINFO* ptr, int retval, char* buf, int j, int addrlen) {
     }
     else if (ptr->isIpv6 == false && ptr->isUDP == true) {
         // 데이터 보내기
-        retval = sendto(ptr->sock, buf, retval, 0,
+        retval = sendto(ptr->sock, buf, BUFSIZE, 0,
             (struct sockaddr*)&ptr->clientaddr4, addrlen);
         if (retval == SOCKET_ERROR) {
             err_display("sendto()");
@@ -566,7 +645,7 @@ int sendAll(SOCKETINFO* ptr, int retval, char* buf, int j, int addrlen) {
     }
     else if (ptr->isIpv6 == true && ptr->isUDP == true) {
         // 데이터 보내기
-        retval = sendto(ptr->sock, buf, retval, 0,
+        retval = sendto(ptr->sock, buf, BUFSIZE, 0,
             (struct sockaddr*)&ptr->clientaddr6, addrlen);
         if (retval == SOCKET_ERROR) {
             err_display("sendto()");
@@ -575,4 +654,30 @@ int sendAll(SOCKETINFO* ptr, int retval, char* buf, int j, int addrlen) {
         }
     }
     return retval;
+}
+
+int getIndexUDPSocket(struct sockaddr_in* peeraddr)
+{
+    for (int i = 0; i < nTotalSockets; i++) {
+        SOCKETINFO* ptr = SocketInfoArray[i];
+        if (ptr->isUDP) {
+            if (ptr->clientaddr4.sin_addr.s_addr == peeraddr->sin_addr.s_addr
+                && ptr->clientaddr4.sin_port == peeraddr->sin_port)
+                return i;
+        }
+    }
+    return -1;
+}
+
+int getIndexUDPSocket(struct sockaddr_in6* peeraddr)
+{
+    for (int i = 0; i < nTotalSockets; i++) {
+        SOCKETINFO* ptr = SocketInfoArray[i];
+        if (ptr->isUDP) {
+            if (memcmp(&ptr->clientaddr6.sin6_addr, &peeraddr->sin6_addr, sizeof(ptr->clientaddr6.sin6_addr))
+                && ptr->clientaddr6.sin6_port == peeraddr->sin6_port)
+                return i;
+        }
+    }
+    return -1;
 }
