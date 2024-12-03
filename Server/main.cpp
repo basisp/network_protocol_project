@@ -56,7 +56,7 @@ void RemoveSocketInfo(int nIndex);
 void err_quit(const char* msg);
 void err_display(const char* msg);
 void err_display(int errcode);
-int sendAll(SOCKETINFO* ptr, int retval, char* buf, int j, int addrlen);
+int sendAll(SOCKETINFO* ptr, char* buf, int j, int addrlen);
 int getIndexUDPSocket(struct sockaddr_in*);
 int getIndexUDPSocket(struct sockaddr_in6*);
 
@@ -195,7 +195,7 @@ int main(int argc, char* argv[]) {
         //소켓 셋 검사(1-3) : 클라이언트 접속 수용 | udp ipv4
         if (FD_ISSET(Usock4, &rset)) {
             char buf[BUFSIZE + 1];
-            addrlen = sizeof(clientaddr4);
+            addrlen = sizeof(clientaddr6);
             retval = recvfrom(Usock4, buf, BUFSIZE, 0,
                 (struct sockaddr*)&clientaddr4, &addrlen);
             
@@ -264,10 +264,9 @@ int main(int argc, char* argv[]) {
                     // 현재 접속한 모든 클라이언트에 데이터 전송
                     for (int j = 0; j < nTotalSockets; j++) {
                         SOCKETINFO* ptr2 = SocketInfoArray[j];
-                        retval = sendAll(ptr2, retval, buf, j, addrlen);
+                        retval = sendAll(ptr2, buf, j, ptr2->addrlen);
                         if (retval == SOCKET_ERROR) {
-                            err_display("send()");
-                            RemoveSocketInfo(j);
+                            err_display("sendAll()");
                             --j;
                             continue;
                         }
@@ -287,6 +286,7 @@ int main(int argc, char* argv[]) {
                 strcpy(ptr->addr4, addr);
                 ptr->clientaddr4 = clientaddr4;
                 ptr->addrlen = addrlen;
+                printf("소켓 추가 성공, %s:%d\n", ptr->addr4, htons(ptr->clientaddr4.sin_port));
                 printf("[UDP/IPv4/%s:%d] %s\n",
                     ptr->addr4, ntohs(ptr->clientaddr4.sin_port), ptr->buf);
             }
@@ -368,9 +368,9 @@ int main(int argc, char* argv[]) {
                     // 현재 접속한 모든 클라이언트에 데이터 전송
                     for (int j = 0; j < nTotalSockets; j++) {
                         SOCKETINFO* ptr2 = SocketInfoArray[j];
-                        retval = sendAll(ptr2, retval, buf, j, addrlen);
+                        retval = sendAll(ptr2, buf, j, ptr2->addrlen);
                         if (retval == SOCKET_ERROR) {
-                            err_display("send()");
+                            err_display("sendAll()");
                             RemoveSocketInfo(j);
                             --j;
                             continue;
@@ -391,6 +391,7 @@ int main(int argc, char* argv[]) {
                 strcpy(ptr->addr6, addr);
                 ptr->clientaddr6 = clientaddr6;
                 ptr->addrlen = addrlen;
+                printf("소켓 추가 성공, %s:%d\n", ptr->addr6, htons(ptr->clientaddr6.sin6_port));
                 printf("[UDP/IPv6/%s:%d] %s\n",
                     ptr->addr6, ntohs(clientaddr6.sin6_port), ptr->buf);
             }
@@ -479,9 +480,9 @@ int main(int argc, char* argv[]) {
                         // 현재 접속한 모든 클라이언트에 데이터 전송
                         for (int j = 0; j < nTotalSockets; j++) {
                             SOCKETINFO* ptr2 = SocketInfoArray[j];
-                            retval = sendAll(ptr2, retval, ptr->buf, j, addrlen);
+                            retval = sendAll(ptr2, ptr->buf, j, ptr2->addrlen);
                             if (retval == SOCKET_ERROR) {
-                                err_display("send()");
+                                err_display("sendAll()");
                                 RemoveSocketInfo(j);
                                 --j;
                                 continue;
@@ -512,6 +513,7 @@ void err_quit(const char* msg)
         (char*)&lpMsgBuf, 0, NULL);
     MessageBoxA(NULL, (const char*)lpMsgBuf, msg, MB_ICONERROR);
     LocalFree(lpMsgBuf);
+
     exit(1);
 }
 
@@ -561,7 +563,7 @@ bool AddSocketInfo(SOCKET sock, bool isIPv6, bool isUDP) {
         int addrlen = sizeof(struct sockaddr_in);
         getpeername(ptr->sock, (struct sockaddr*)&ptr->clientaddr4, &addrlen);
         inet_ntop(AF_INET, &ptr->clientaddr4.sin_addr, ptr->addr4, sizeof(ptr->addr4));
-        printf("소켓 추가 성공, %s:%d\n", ptr->addr4, htons(ptr->clientaddr4.sin_port));
+       
 
     }
     else { //IPv6
@@ -605,7 +607,7 @@ void RemoveSocketInfo(int nIndex) {
         //클라이언트 정보 출력
         char addr[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &clientaddr.sin_addr, addr, sizeof(addr));
-        printf("[UDP/IPv4 서버] 클라이언트 이상 : IP 주소=%s, 포트 번호=%d\n", addr, ntohs(clientaddr.sin_port));
+        printf("[UDP/IPv4 서버] 클라이언트 이상 : IP 주소=%s, 포트 번호=%d\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port));
     }
     else {
         //클라이언트 정보 얻기
@@ -615,18 +617,20 @@ void RemoveSocketInfo(int nIndex) {
         //클라이언트 정보 출력
         char addr[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &clientaddr.sin6_addr, addr, sizeof(addr));
-        printf("[UDP/IPv6 서버] 클라이언트 이상 : IP 주소=%s, 포트 번호=%d\n", addr, ntohs(clientaddr.sin6_port));
+        printf("[UDP/IPv6 서버] 클라이언트 이상 : IP 주소=%s, 포트 번호=%d\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port));
     }
 
     //소켓 닫기
-    closesocket(ptr->sock);
+    if(!ptr->isIpv6)
+        closesocket(ptr->sock);
     delete ptr;
     if (nIndex != (nTotalSockets - 1))
         SocketInfoArray[nIndex] = SocketInfoArray[nTotalSockets - 1];
     --nTotalSockets;
 }
 
-int sendAll(SOCKETINFO* ptr, int retval, char* buf, int j, int addrlen) {
+int sendAll(SOCKETINFO* ptr, char* buf, int j, int addrlen) {
+    int retval;
     if (ptr->isUDP) {
         // UDP
         if (ptr->isIpv6) {
@@ -634,7 +638,7 @@ int sendAll(SOCKETINFO* ptr, int retval, char* buf, int j, int addrlen) {
             retval = sendto(ptr->sock, buf, BUFSIZE, 0,
                 (struct sockaddr*)&ptr->clientaddr6, addrlen);
             if (retval == SOCKET_ERROR) {
-                err_display("sendto()");
+                err_display("sendto(6)");
                 RemoveSocketInfo(j);
             }
         }
@@ -643,7 +647,7 @@ int sendAll(SOCKETINFO* ptr, int retval, char* buf, int j, int addrlen) {
             retval = sendto(ptr->sock, buf, BUFSIZE, 0,
                 (struct sockaddr*)&ptr->clientaddr4, addrlen);
             if (retval == SOCKET_ERROR) {
-                err_display("sendto()");
+                err_display("sendto(4)");
                 RemoveSocketInfo(j);
             }
         }
