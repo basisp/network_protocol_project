@@ -678,13 +678,13 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 					if (!g_isIPv6) { // UDP/IPv4
 						struct sockaddr_in peeraddr;
 						addrlen = sizeof(peeraddr);
-						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL,
+						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), 0,
 							(struct sockaddr *)&peeraddr, &addrlen);
 					}
 					else { // UDP/IPv6
 						struct sockaddr_in6 peeraddr;
 						addrlen = sizeof(peeraddr);
-						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL,
+						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), 0,
 							(struct sockaddr *)&peeraddr, &addrlen);
 					}
 				}
