@@ -345,10 +345,10 @@ int main(int argc, char* argv[]) {
                         if (j != i) {  // 송신자는 제외
                             SOCKETINFO* ptr2 = SocketInfoArray[j];
                             if (ptr2->isUDP) {
-                                if (ptr2->isIpv6) retval = sendto(ptr2->sock, buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr6, sizeof(ptr2->clientaddr6));
-                                else retval = sendto(ptr2->sock, buf, SIZE_TOT, 0, (struct sockaddr*)&ptr2->clientaddr4, sizeof(ptr2->clientaddr4));
+                                if (ptr2->isIpv6) retval = sendto(ptr2->sock, buf, retval, 0, (struct sockaddr*)&ptr2->clientaddr6, sizeof(ptr2->clientaddr6));
+                                else retval = sendto(ptr2->sock, buf, retval, 0, (struct sockaddr*)&ptr2->clientaddr4, sizeof(ptr2->clientaddr4));
                             }
-                            else retval = send(ptr2->sock, buf, SIZE_TOT, 0);
+                            else retval = send(ptr2->sock, buf, retval, 0);
                             if (retval == SOCKET_ERROR) {
                                 err_display("send()");
                                 RemoveSocketInfo(j);

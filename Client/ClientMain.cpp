@@ -280,14 +280,13 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 				strncpy(fileMsg.filename, ansiFilename, SIZE_DAT / 2 - 1);
 
 				int retval;
-				int totalSent = 0;
+				int totalSent = 0, remainSize, sendSize;
 
 				// UDP 전송
 				if (g_isUDP) {
 					if (!g_isIPv6) { // UDP/IPv4
 						// 파일 정보 먼저 전송
-						retval = sendto(g_sock, (char*)&fileMsg, SIZE_TOT, 0,
-							(struct sockaddr*)&serveraddr4, sizeof(serveraddr4));
+						retval = sendto(g_sock, (char*)&fileMsg, SIZE_TOT, 0, (struct sockaddr *)&serveraddr4, sizeof(serveraddr4));
 						if (retval == SOCKET_ERROR) {
 							MessageBox(hDlg, _T("파일 정보 전송 실패"), _T("오류"), MB_ICONERROR);
 							free(fileData);
@@ -296,10 +295,9 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
 						// 파일 데이터 전송
 						while (totalSent < fileSize) {
-							int remainSize = fileSize - totalSent;
-							int sendSize = min(remainSize, SIZE_TOT);
-							retval = sendto(g_sock, fileData + totalSent, sendSize, 0,
-								(struct sockaddr*)&serveraddr4, sizeof(serveraddr4));
+							remainSize = fileSize - totalSent;
+							sendSize = min(remainSize, SIZE_TOT);
+							retval = sendto(g_sock, fileData + totalSent, sendSize, 0, (struct sockaddr *)&serveraddr4, sizeof(serveraddr4));
 							if (retval == SOCKET_ERROR) {
 								MessageBox(hDlg, _T("파일 전송 실패"), _T("오류"), MB_ICONERROR);
 								break;
@@ -319,8 +317,8 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
 						// 파일 데이터 전송
 						while (totalSent < fileSize) {
-							int remainSize = fileSize - totalSent;
-							int sendSize = min(remainSize, SIZE_TOT);
+							remainSize = fileSize - totalSent;
+							sendSize = min(remainSize, SIZE_TOT);
 							retval = sendto(g_sock, fileData + totalSent, sendSize, 0,
 								(struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
 							if (retval == SOCKET_ERROR) {
@@ -342,8 +340,8 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
 					// 파일 데이터 전송
 					while (totalSent < fileSize) {
-						int remainSize = fileSize - totalSent;
-						int sendSize = min(remainSize, SIZE_TOT);
+						remainSize = fileSize - totalSent;
+						sendSize = min(remainSize, SIZE_TOT);
 						retval = send(g_sock, fileData + totalSent, sendSize, 0);
 						if (retval == SOCKET_ERROR) {
 							MessageBox(hDlg, _T("파일 전송 실패"), _T("오류"), MB_ICONERROR);
@@ -352,7 +350,6 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 						totalSent += retval;
 					}
 				}
-
 				free(fileData);
 				DisplayText("파일 전송 완료: %s (%d 바이트)\r\n", fileMsg.filename, fileSize);
 			}
@@ -680,21 +677,20 @@ DWORD WINAPI ReadThread(LPVOID arg) {
 				if (g_isUDP) {
 					if (!g_isIPv6) { // UDP/IPv4
 						struct sockaddr_in peeraddr;
-						int addrlen = sizeof(peeraddr);
+						addrlen = sizeof(peeraddr);
 						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL,
-							(struct sockaddr*)&peeraddr, &addrlen);
+							(struct sockaddr *)&peeraddr, &addrlen);
 					}
 					else { // UDP/IPv6
 						struct sockaddr_in6 peeraddr;
-						int addrlen = sizeof(peeraddr);
+						addrlen = sizeof(peeraddr);
 						retval = recvfrom(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL,
-							(struct sockaddr*)&peeraddr, &addrlen);
+							(struct sockaddr *)&peeraddr, &addrlen);
 					}
 				}
 				else {
 					retval = recv(g_sock, fileBuffer, min(remainBytes, SIZE_TOT), MSG_WAITALL);
 				}
-
 				if (retval == SOCKET_ERROR || retval == 0) {
 					DisplayText("[오류] 파일 수신 실패\r\n");
 					break;
@@ -738,22 +734,16 @@ DWORD WINAPI WriteThread(LPVOID	arg) {
 		// 데이터 보내기
 		if (g_isUDP) {
 			// UDP
-			if (g_isIPv6) {
-				retval = sendto(g_sock, (char*)&g_chatmsg, SIZE_TOT, 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
-			}				
-			else {
-				retval = sendto(g_sock, (char*)&g_chatmsg, SIZE_TOT, 0, (struct sockaddr*)&serveraddr4, sizeof(serveraddr4));
-			}
-			
-			if (retval == SOCKET_ERROR) {
-				err_display("sendto()");
-				break;
-			}
+			if (g_isIPv6) retval = sendto(g_sock, (char*)&g_chatmsg, SIZE_TOT, 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
+			else retval = sendto(g_sock, (char*)&g_chatmsg, SIZE_TOT, 0, (struct sockaddr*)&serveraddr4, sizeof(serveraddr4));
 		}
 		else {
 			// TCP
 			retval = send(g_sock, (char*)&g_chatmsg, SIZE_TOT, 0);
-			if (retval == SOCKET_ERROR) break;
+		}
+		if (retval == SOCKET_ERROR) {
+			err_display("sendto()");
+			break;
 		}
 		// 메시지 전송 버튼 활성화
 		EnableWindow(g_hBtnSendMsg, TRUE);
