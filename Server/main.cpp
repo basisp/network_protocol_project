@@ -21,6 +21,7 @@
 #define TYPE_FILE 1003 // 기존 메시지 타입들(1000, 1001, 1002)과 구분되는 새로운 타입
 #define SIZE_TOT 256  //전송 패킷 고정 256바이트 사용(헤더+데이터)
 #define SIZE_DAT (SIZE_TOT - sizeof(int)) //헤더 길이를 제외한 데이터 
+#define TYPE_UDP_DYING 1004 // 회광반조
 
 typedef struct _FILE_MSG {
     int type;
@@ -195,7 +196,7 @@ int main(int argc, char* argv[]) {
         //소켓 셋 검사(1-3) : 클라이언트 접속 수용 | udp ipv4
         if (FD_ISSET(Usock4, &rset)) {
             char buf[BUFSIZE + 1];
-            addrlen = sizeof(clientaddr6);
+            addrlen = sizeof(clientaddr4);
             retval = recvfrom(Usock4, buf, BUFSIZE, 0,
                 (struct sockaddr*)&clientaddr4, &addrlen);
             
@@ -206,7 +207,11 @@ int main(int argc, char* argv[]) {
                 // UDP
                 // 메시지 타입 확인
                 int type = *(int*)buf;
-
+                if (type == TYPE_UDP_DYING) {
+                    printf("사망 메시지 발생\n");
+                    RemoveSocketInfo(i);
+                    continue;
+                }
                 if (type == TYPE_FILE) {  // 파일 전송 시작
                     FILE_MSG* filemsg = (FILE_MSG*)buf;
                     ptr->isReceivingFile = true;
@@ -310,7 +315,11 @@ int main(int argc, char* argv[]) {
                 // UDP
                 // 메시지 타입 확인
                 int type = *(int*)buf;
-
+                if (type == TYPE_UDP_DYING) {
+                    printf("사망 메시지 발생\n");
+                    RemoveSocketInfo(i);
+                    continue;
+                }
                 if (type == TYPE_FILE) {  // 파일 전송 시작
                     FILE_MSG* filemsg = (FILE_MSG*)buf;
                     ptr->isReceivingFile = true;
@@ -580,53 +589,26 @@ void RemoveSocketInfo(int nIndex) {
     SOCKETINFO* ptr = SocketInfoArray[nIndex];
 
     if (ptr->isIpv6 == false && ptr->isUDP == false) {
-        //클라이언트 정보 얻기
-        struct sockaddr_in clientaddr;
-        int addrlen = sizeof(clientaddr);
-        getpeername(ptr->sock, (struct sockaddr*)&clientaddr, &addrlen);
-        //클라이언트 정보 출력
-        char addr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &clientaddr.sin_addr, addr, sizeof(addr));
-        printf("[TCP/IPv4 서버] 클라이언트 종료 : IP 주소=%s, 포트 번호=%d\n", addr, ntohs(clientaddr.sin_port));
+        printf("[TCP/IPv4 서버] 클라이언트 종료 : IP 주소=%s, 포트 번호=%d\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port));
     }
     else if (ptr->isIpv6 == true && ptr->isUDP == false) {
-        //클라이언트 정보 얻기
-        struct sockaddr_in6 clientaddr;
-        int addrlen = sizeof(clientaddr);
-        getpeername(ptr->sock, (struct sockaddr*)&clientaddr, &addrlen);
-        //클라이언트 정보 출력
-        char addr[INET6_ADDRSTRLEN];
-        inet_ntop(AF_INET6, &clientaddr.sin6_addr, addr, sizeof(addr));
-        printf("[TCP/IPv6 서버] 클라이언트 종료 : IP 주소=%s, 포트 번호=%d\n", addr, ntohs(clientaddr.sin6_port));
+        printf("[TCP/IPv6 서버] 클라이언트 종료 : IP 주소=%s, 포트 번호=%d\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port));
     }
     else if (ptr->isIpv6 == false && ptr->isUDP == true) {
-        //클라이언트 정보 얻기
-        struct sockaddr_in clientaddr;
-        int addrlen = sizeof(clientaddr);
-        getpeername(ptr->sock, (struct sockaddr*)&clientaddr, &addrlen);
-        //클라이언트 정보 출력
-        char addr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &clientaddr.sin_addr, addr, sizeof(addr));
-        printf("[UDP/IPv4 서버] 클라이언트 이상 : IP 주소=%s, 포트 번호=%d\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port));
+        printf("[UDP/IPv4 서버] 클라이언트 연결 해제 : IP 주소=%s, 포트 번호=%d\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port));
     }
     else {
-        //클라이언트 정보 얻기
-        struct sockaddr_in6 clientaddr;
-        int addrlen = sizeof(clientaddr);
-        getpeername(ptr->sock, (struct sockaddr*)&clientaddr, &addrlen);
-        //클라이언트 정보 출력
-        char addr[INET6_ADDRSTRLEN];
-        inet_ntop(AF_INET6, &clientaddr.sin6_addr, addr, sizeof(addr));
-        printf("[UDP/IPv6 서버] 클라이언트 이상 : IP 주소=%s, 포트 번호=%d\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port));
+        printf("[UDP/IPv6 서버] 클라이언트 연결 해제 : IP 주소=%s, 포트 번호=%d\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port));
     }
 
     //소켓 닫기
-    if(!ptr->isIpv6)
+    if(!ptr->isUDP)
         closesocket(ptr->sock);
     delete ptr;
     if (nIndex != (nTotalSockets - 1))
         SocketInfoArray[nIndex] = SocketInfoArray[nTotalSockets - 1];
     --nTotalSockets;
+    printf("현재 소켓 개수: %d\n", nTotalSockets);
 }
 
 int sendAll(SOCKETINFO* ptr, char* buf, int j, int addrlen) {

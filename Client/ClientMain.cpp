@@ -384,6 +384,12 @@ INT_PTR CALLBACK DlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			}
 			return TRUE;
 		case IDCANCEL:
+			if (g_isUDP) {
+				COMM_MSG comm_msg;
+				comm_msg.type = TYPE_UDP_DYING;
+				if (g_isIPv6) sendto(g_sock, (char*)&comm_msg, SIZE_TOT, 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
+				else sendto(g_sock, (char*)&comm_msg, SIZE_TOT, 0, (struct sockaddr*)&serveraddr4, sizeof(serveraddr4));
+			}
 			closesocket(g_sock);
 			EndDialog(hDlg, IDCANCEL);
 			return TRUE;

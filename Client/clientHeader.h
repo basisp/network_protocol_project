@@ -13,6 +13,7 @@
 #define TYPE_DRAWLINE 1001 // type = 1001 선 그리기 메시지 
 #define TYPE_ERASEPIC 1002 //  type = 1000 그림 지우기 메시지
 #define TYPE_FILE 1003 //파일 전송 메세지
+#define TYPE_UDP_DYING 1004 // UDP가 죽으면서 내는 소리
 
 #define WM_DRAWLINE (WM_USER + 1)// 사용자 정의 윈도우 메시지 - 선 그리기
 #define WM_ERASEPIC (WM_USER + 2)// 사용자 정의 윈도우 메시지 - 그림 지우기
