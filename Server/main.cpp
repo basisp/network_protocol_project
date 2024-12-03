@@ -99,6 +99,12 @@ int main(int argc, char* argv[]) {
     /***UDP - IPv4소켓 생성***/
     SOCKET Usock4 = socket(AF_INET, SOCK_DGRAM, 0);
     if (Usock4 == INVALID_SOCKET) err_quit("socket()");
+
+
+    // SO_REUSEADDR 소켓 옵션 설정
+    DWORD optval = 1;
+    retval = setsockopt(Usock4, SOL_SOCKET, SO_REUSEADDR, (char*)optval, sizeof(optval));
+    if (retval == SOCKET_ERROR) err_quit("setsockopt()");
     // bind()
     struct sockaddr_in serveraddr4_UDP;
     memset(&serveraddr4_UDP, 0, sizeof(serveraddr4_UDP));
@@ -114,6 +120,11 @@ int main(int argc, char* argv[]) {
     //소켓 생성
     SOCKET Usock6 = socket(AF_INET6, SOCK_DGRAM, 0);
     if (Usock6 == INVALID_SOCKET) err_quit("socket()");
+
+    // SO_REUSEADDR 소켓 옵션 설정
+    DWORD optval = 1;
+    retval = setsockopt(Usock6, SOL_SOCKET, SO_REUSEADDR, (char*)optval, sizeof(optval));
+    if (retval == SOCKET_ERROR) err_quit("setsockopt()");
     // bind()
     struct sockaddr_in6 serveraddr6_UDP;
     memset(&serveraddr6_UDP, 0, sizeof(serveraddr6_UDP));

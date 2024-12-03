@@ -568,7 +568,7 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 	if (hThread[0] == NULL || hThread[1] == NULL) exit(1);
 	g_bCommStarted = true;
 
-	//스레드 종료 대기 (둘 중 하나라도 종료할 때까지
+	// 스레드 종료 대기 (둘 중 하나라도 종료할 때까지
 	retval = WaitForMultipleObjects(2, hThread, FALSE, INFINITE);
 	retval += WAIT_OBJECT_0;
 
@@ -578,13 +578,15 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 		TerminateThread(hThread[0], 1);
 	CloseHandle(hThread[0]);
 	CloseHandle(hThread[1]);
-
-	MessageBox(NULL, _T("연결이 끊겼습니다."), _T("알림"), MB_ICONERROR);
-	EnableWindow(g_hBtnSendFile, FALSE);
-	EnableWindow(g_hBtnSendMsg, FALSE);
-	EnableWindow(g_hBtnErasePic, FALSE);
-	g_bCommStarted = false;
-	closesocket(g_sock);
+	
+	if (!g_isUDP) {
+		MessageBox(NULL, _T("연결이 끊겼습니다."), _T("알림"), MB_ICONERROR);
+		EnableWindow(g_hBtnSendFile, FALSE);
+		EnableWindow(g_hBtnSendMsg, FALSE);
+		EnableWindow(g_hBtnErasePic, FALSE);
+		g_bCommStarted = false;
+		closesocket(g_sock);
+	}
 	return 0;
 }
 
@@ -814,7 +816,7 @@ DWORD WINAPI WriteThread(LPVOID	arg) {
 		}
 		// 데이터 보내기
 		if (g_isUDP) {
-			// UDP 프로토콜
+			// UDP
 			if (g_isIPv6) {
 				retval = sendto(g_sock, (char*)&g_chatmsg, SIZE_TOT, 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
 				if (retval == SOCKET_ERROR) {
@@ -829,7 +831,6 @@ DWORD WINAPI WriteThread(LPVOID	arg) {
 					break;
 				}
 			}
-
 		}
 		else {
 			// TCP
