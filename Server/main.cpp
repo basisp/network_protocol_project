@@ -242,6 +242,7 @@ int main(int argc, char* argv[]) {
             SOCKETINFO* ptr = SocketInfoArray[i];
             if (FD_ISSET(ptr->sock, &rset)) {
                 if (ptr->isUDP == false) {
+                    // TCP
                     // 데이터 받기
                     retval = recv(ptr->sock, ptr->buf, BUFSIZE, 0);
                     if (retval == 0 || retval == SOCKET_ERROR) {
