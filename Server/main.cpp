@@ -199,8 +199,6 @@ int main(int argc, char* argv[]) {
             retval = recvfrom(Usock4, buf, BUFSIZE, 0,
                 (struct sockaddr*)&clientaddr4, &addrlen);
             
-            char addr[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &clientaddr4.sin_addr, addr, sizeof(addr));
             int i = getIndexUDPSocket(&clientaddr4);
             if (i != -1) {
                 // 데이터 통신
@@ -280,6 +278,9 @@ int main(int argc, char* argv[]) {
                 if (!AddSocketInfo(Usock4, false, true)) {
                     continue;
                 }
+                char addr[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &clientaddr4.sin_addr, addr, sizeof(addr));
+
                 SOCKETINFO* ptr = SocketInfoArray[nTotalSockets - 1];
                 buf[retval] = '\0';
                 strcpy(ptr->buf, buf);
@@ -302,16 +303,13 @@ int main(int argc, char* argv[]) {
             addrlen = sizeof(clientaddr6);
             retval = recvfrom(Usock6, buf, BUFSIZE, 0,
                 (struct sockaddr*)&clientaddr6, &addrlen);
-            char addr[INET6_ADDRSTRLEN];
-            inet_ntop(AF_INET6, &clientaddr6.sin6_addr, addr, sizeof(addr));
             int i = getIndexUDPSocket(&clientaddr6);
             if (i != -1) {
                 // 데이터 통신
                 SOCKETINFO* ptr = SocketInfoArray[i];
                 // UDP
-
                 // 메시지 타입 확인
-                int type = *(int*)ptr->buf;
+                int type = *(int*)buf;
 
                 if (type == TYPE_FILE) {  // 파일 전송 시작
                     FILE_MSG* filemsg = (FILE_MSG*)buf;
@@ -384,6 +382,9 @@ int main(int argc, char* argv[]) {
                 if (!AddSocketInfo(Usock6, true, true)) {
                     continue;
                 }
+                char addr[INET6_ADDRSTRLEN];
+                inet_ntop(AF_INET6, &clientaddr6.sin6_addr, addr, sizeof(addr));
+
                 SOCKETINFO* ptr = SocketInfoArray[nTotalSockets - 1];
                 buf[retval] = '\0';
                 strcpy(ptr->buf, buf);
@@ -626,31 +627,33 @@ void RemoveSocketInfo(int nIndex) {
 }
 
 int sendAll(SOCKETINFO* ptr, int retval, char* buf, int j, int addrlen) {
-    if (ptr->isUDP == false) {
+    if (ptr->isUDP) {
+        // UDP
+        if (ptr->isIpv6) {
+            // 데이터 보내기
+            retval = sendto(ptr->sock, buf, BUFSIZE, 0,
+                (struct sockaddr*)&ptr->clientaddr6, addrlen);
+            if (retval == SOCKET_ERROR) {
+                err_display("sendto()");
+                RemoveSocketInfo(j);
+            }
+        }
+        else {
+            // 데이터 보내기
+            retval = sendto(ptr->sock, buf, BUFSIZE, 0,
+                (struct sockaddr*)&ptr->clientaddr4, addrlen);
+            if (retval == SOCKET_ERROR) {
+                err_display("sendto()");
+                RemoveSocketInfo(j);
+            }
+        }
+    }
+    else {
+        // TCP
         retval = send(ptr->sock, buf, BUFSIZE, 0);
         if (retval == SOCKET_ERROR) {
             err_display("send()");
             RemoveSocketInfo(j);
-        }
-    }
-    else if (ptr->isIpv6 == false && ptr->isUDP == true) {
-        // 데이터 보내기
-        retval = sendto(ptr->sock, buf, BUFSIZE, 0,
-            (struct sockaddr*)&ptr->clientaddr4, addrlen);
-        if (retval == SOCKET_ERROR) {
-            err_display("sendto()");
-            RemoveSocketInfo(j);
-
-        }
-    }
-    else if (ptr->isIpv6 == true && ptr->isUDP == true) {
-        // 데이터 보내기
-        retval = sendto(ptr->sock, buf, BUFSIZE, 0,
-            (struct sockaddr*)&ptr->clientaddr6, addrlen);
-        if (retval == SOCKET_ERROR) {
-            err_display("sendto()");
-            RemoveSocketInfo(j);
-
         }
     }
     return retval;
@@ -674,8 +677,7 @@ int getIndexUDPSocket(struct sockaddr_in6* peeraddr)
     for (int i = 0; i < nTotalSockets; i++) {
         SOCKETINFO* ptr = SocketInfoArray[i];
         if (ptr->isUDP) {
-            if (memcmp(&ptr->clientaddr6.sin6_addr, &peeraddr->sin6_addr, sizeof(ptr->clientaddr6.sin6_addr))
-                && ptr->clientaddr6.sin6_port == peeraddr->sin6_port)
+            if (ptr->clientaddr6.sin6_port == peeraddr->sin6_port)
                 return i;
         }
     }
