@@ -18,11 +18,48 @@
 
 #define SERVERPORT 9000
 #define BUFSIZE 256
+
+#define TYPE_CHAT 1000 // type = 1000 채팅 메시지 
+#define TYPE_DRAWLINE 1001 // type = 1001 선 그리기 메시지 
+#define TYPE_ERASEPIC 1002 //  type = 1000 그림 지우기 메시지
 #define TYPE_FILE 1003 // 기존 메시지 타입들(1000, 1001, 1002)과 구분되는 새로운 타입
-#define SIZE_TOT 256  //전송 패킷 고정 256바이트 사용(헤더+데이터)
-#define SIZE_DAT (SIZE_TOT - sizeof(int)) //헤더 길이를 제외한 데이터 
 #define TYPE_UDP_DYING 1004 // 회광반조
 
+#define SIZE_TOT 256  //전송 패킷 고정 256바이트 사용(헤더+데이터)
+#define SIZE_DAT (SIZE_TOT - sizeof(int)) //헤더 길이를 제외한 데이터 
+
+//공통 메시지 형식
+//sizeof (COMM_MSG) == 256
+typedef struct _COMM_MSG {
+    int type;
+    char dummy[SIZE_DAT];
+} COMM_MSG;
+
+//채팅 메시지 형식
+//sizeof(CHAR_MSG) == 256
+typedef struct _CHAT_MSG {
+    int type;
+    char msg[SIZE_DAT];
+} CHAT_MSG;
+
+//선 그리기 메시지 형식
+//sizeof(DRAWLINE_MSG) == 256
+typedef struct _DRAWLINE_MSG {
+    int type;
+    int color;
+    int x0, y0;
+    int x1, y1;
+    char dummy[SIZE_TOT - 6 * sizeof(int)];
+} DRAWLINE_MSG;
+
+//그림 지우기 메시지 형식
+//sizeof(ERASEPIC_MSG) == 256
+typedef struct _ERASEPIC_MSG {
+    int type;
+    char dummy[SIZE_DAT];
+} ERASEPIC_MSG;
+
+// 파일 메시지 형식
 typedef struct _FILE_MSG {
     int type;
     char filename[SIZE_DAT / 2];  // 파일명
@@ -262,10 +299,25 @@ int main(int argc, char* argv[]) {
                         printf("[파일 전송 완료]\n");
                     }
                 }
-                else {  // 일반 메시지 처리
-                    buf[retval] = '\0';
-                    printf("[UDP/IPv4/%s:%d] %s\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port), buf);
-
+                else {  // 일반 메시지 혹은 그리기 메시지 처리
+                    if (type == TYPE_CHAT) {
+                        CHAT_MSG* chat_msg = (CHAT_MSG*)&buf;
+                        buf[retval] = '\0';
+                        printf("[UDP/IPv4/%s:%d] %s\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port), chat_msg->msg);
+                    }
+                    else if (type == TYPE_DRAWLINE) {
+                        DRAWLINE_MSG* drawline_msg = (DRAWLINE_MSG*)&buf;
+                        char color[10];
+                        if (drawline_msg->color == RGB(255,0,0)) strcpy(color, "빨간색");
+                        else if (drawline_msg->color == RGB(0, 255, 0)) strcpy(color, "초록색");
+                        else strcpy(color, "파랑색");
+                        printf("[UDP/IPv4/%s:%d] %s, (%d, %d)에서 (%d, %d)로\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port),
+                                color, drawline_msg->x0, drawline_msg->y0, drawline_msg->x1, drawline_msg->y1);
+                    }
+                    else {
+                        printf("[UDP/IPv4/%s:%d] 그림 지우기\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port));
+                    }
+                    
                     // 현재 접속한 모든 클라이언트에 데이터 전송
                     for (int j = 0; j < nTotalSockets; j++) {
                         SOCKETINFO* ptr2 = SocketInfoArray[j];
@@ -306,6 +358,7 @@ int main(int argc, char* argv[]) {
         if (FD_ISSET(Usock6, &rset)) {
             char buf[BUFSIZE + 1];
             addrlen = sizeof(clientaddr6);
+            COMM_MSG comm_msg;
             retval = recvfrom(Usock6, buf, BUFSIZE, 0,
                 (struct sockaddr*)&clientaddr6, &addrlen);
             int i = getIndexUDPSocket(&clientaddr6);
@@ -370,9 +423,24 @@ int main(int argc, char* argv[]) {
                         printf("[파일 전송 완료]\n");
                     }
                 }
-                else {  // 일반 메시지 처리
-                    buf[retval] = '\0';
-                    printf("[UDP/IPv6/%s:%d] %s\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port), buf);
+                else {  // 일반 메시지 및 그리기 메시지 처리
+                    if (type == TYPE_CHAT) {
+                        CHAT_MSG* chat_msg = (CHAT_MSG*)&buf;
+                        buf[retval] = '\0';
+                        printf("[UDP/IPv6/%s:%d] %s\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port), chat_msg->msg);
+                    }
+                    else if (type == TYPE_DRAWLINE) {
+                        DRAWLINE_MSG* drawline_msg = (DRAWLINE_MSG*)&buf;
+                        char color[10];
+                        if (drawline_msg->color == RGB(255, 0, 0)) strcpy(color, "빨간색");
+                        else if (drawline_msg->color == RGB(0, 255, 0)) strcpy(color, "초록색");
+                        else strcpy(color, "파랑색");
+                        printf("[UDP/IPv6/%s:%d] %s, (%d, %d)에서 (%d, %d)로\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port),
+                            color, drawline_msg->x0, drawline_msg->y0, drawline_msg->x1, drawline_msg->y1);
+                    }
+                    else {
+                        printf("[UDP/IPv6/%s:%d] 그림 지우기\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port));
+                    }
 
                     // 현재 접속한 모든 클라이언트에 데이터 전송
                     for (int j = 0; j < nTotalSockets; j++) {
@@ -479,12 +547,34 @@ int main(int argc, char* argv[]) {
                             printf("[파일 전송 완료]\n");
                         }
                     }
-                    else {  // 일반 메시지 처리
-                        ptr->buf[retval] = '\0';
-                        if (ptr->isIpv6)
-                            printf("[TCP/IPv6/%s:%d] %s\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port), ptr->buf);
-                        else
-                            printf("[TCP/IPv4/%s:%d] %s\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port), ptr->buf);
+                    else {  // 일반 메시지 및 그리기 메시지 처리
+                        if (type == TYPE_CHAT) {
+                            CHAT_MSG* chat_msg = (CHAT_MSG*)&ptr->buf;
+                            ptr->buf[retval] = '\0';
+                            if (ptr->isIpv6)
+                                printf("[TCP/IPv6/%s:%d] %s\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port), chat_msg->msg);
+                            else
+                                printf("[TCP/IPv4/%s:%d] %s\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port), chat_msg->msg);
+                        }
+                        else if (type == TYPE_DRAWLINE) {
+                            DRAWLINE_MSG* drawline_msg = (DRAWLINE_MSG*)&ptr->buf;
+                            char color[10];
+                            if (drawline_msg->color == RGB(255, 0, 0)) strcpy(color, "빨간색");
+                            else if (drawline_msg->color == RGB(0, 255, 0)) strcpy(color, "초록색");
+                            else strcpy(color, "파랑색");
+                            if (ptr->isIpv6)
+                                printf("[TCP/IPv6/%s:%d] %s, (%d, %d)에서 (%d, %d)로\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port),
+                                    color, drawline_msg->x0, drawline_msg->y0, drawline_msg->x1, drawline_msg->y1);
+                            else
+                                printf("[TCP/IPv4/%s:%d] %s, (%d, %d)에서 (%d, %d)로\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port),
+                                    color, drawline_msg->x0, drawline_msg->y0, drawline_msg->x1, drawline_msg->y1);
+                        }
+                        else {
+                            if(ptr->isIpv6)
+                                printf("[TCP/IPv6/%s:%d] 그림 지우기\n", ptr->addr6, ntohs(ptr->clientaddr6.sin6_port));
+                            else
+                                printf("[TCP/IPv4/%s:%d] 그림 지우기\n", ptr->addr4, ntohs(ptr->clientaddr4.sin_port));
+                        }
 
                         // 현재 접속한 모든 클라이언트에 데이터 전송
                         for (int j = 0; j < nTotalSockets; j++) {

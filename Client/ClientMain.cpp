@@ -557,7 +557,7 @@ DWORD WINAPI ClientMain(LPVOID arg) {
 		inet_pton(AF_INET6, g_ipaddr, &serveraddr6.sin6_addr);
 		serveraddr6.sin6_port = htons(g_port);		
 
-		retval = sendto(g_sock, "UDP/IPv6 연결 확인", strlen("UDP/IPv4 연결 확인"), 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
+		retval = sendto(g_sock, "UDP/IPv6 연결 확인", strlen("UDP/IPv6 연결 확인"), 0, (struct sockaddr*)&serveraddr6, sizeof(serveraddr6));
 	}
 	MessageBox(NULL, _T("서버에 접속했습니다."), _T("알림"), MB_ICONINFORMATION);
 	// 읽기 쓰기 스레드 생성
